@@ -63,12 +63,12 @@ namespace MonoTorrent.Client.Modes
 
             // Mark the torrent as hash check complete with no data downloaded
             if (rig.Manager.HasMetadata)
-                rig.Manager.LoadFastResume (new FastResume (rig.Manager.InfoHash, rig.Manager.Bitfield.Clone ().SetAll (false), rig.Manager.Bitfield.Clone ().SetAll (false)));
+                rig.Manager.LoadFastResume (new FastResume (rig.Manager.InfoHash, rig.Manager.Bitfield.AsMutable ().SetAll (false), rig.Manager.Bitfield.AsMutable ().SetAll (false)));
             await rig.Manager.StartAsync (metadataOnly);
             rig.AddConnection (pair.Outgoing);
 
             var connection = pair.Incoming;
-            PeerId id = new PeerId (new Peer ("", connection.Uri), connection, rig.Manager.Bitfield?.Clone ().SetAll (false));
+            PeerId id = new PeerId (new Peer ("", connection.Uri), connection, rig.Manager.Bitfield?.AsMutable ().SetAll (false));
 
             var result = await EncryptorFactory.CheckIncomingConnectionAsync (id.Connection, id.Peer.AllowedEncryption, new[] { rig.Manager.InfoHash });
             decryptor = id.Decryptor = result.Decryptor;

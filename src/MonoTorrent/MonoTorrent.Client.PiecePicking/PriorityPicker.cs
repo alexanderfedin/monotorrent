@@ -62,8 +62,8 @@ namespace MonoTorrent.Client.PiecePicking
         readonly List<Files> files = new List<Files> ();
         readonly List<BitField> prioritised = new List<BitField> ();
 
-        BitField allPrioritisedPieces;
-        BitField temp;
+        MutableBitField allPrioritisedPieces;
+        MutableBitField temp;
 
         public PriorityPicker (IPiecePicker picker)
             : base (picker)
@@ -75,8 +75,8 @@ namespace MonoTorrent.Client.PiecePicking
         {
             base.Initialise (torrentData);
 
-            allPrioritisedPieces = new BitField (torrentData.PieceCount ());
-            temp = new BitField (torrentData.PieceCount ());
+            allPrioritisedPieces = new MutableBitField (torrentData.PieceCount ());
+            temp = new MutableBitField (torrentData.PieceCount ());
 
             files.Clear ();
             for (int i = 0; i < torrentData.Files.Count; i++)

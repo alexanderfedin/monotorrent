@@ -37,11 +37,75 @@ using System.Text;
 
 namespace MonoTorrent
 {
+    public sealed class MutableBitField : BitField
+    {
+        public new bool this[int index] {
+            get => base[index];
+            set => base[index] = value;
+        }
+
+        public MutableBitField (byte[] array, int length)
+            : base (array, length)
+        {
+        }
+
+        public MutableBitField (int length)
+            : base (length)
+        {
+        }
+
+        public MutableBitField (bool[] array)
+            : base (array)
+        {
+            
+        }
+
+        internal new MutableBitField Clone ()
+            => (MutableBitField) CloneInternal ();
+
+        private protected override BitField CloneInternal ()
+            => new MutableBitField (Length).From (this);
+
+        public new MutableBitField And (BitField value)
+            => (MutableBitField) base.And (value);
+
+        public new MutableBitField From (BitField value)
+           => (MutableBitField) base.From (value);
+
+        public new MutableBitField NAnd (BitField value)
+           => (MutableBitField) base.NAnd (value);
+
+        public new MutableBitField Not ()
+           => (MutableBitField) base.Not ();
+
+        public new MutableBitField Or (BitField value)
+           => (MutableBitField) base.Or (value);
+
+        public new MutableBitField Set (int index, bool value)
+            => (MutableBitField) base.Set (index, value);
+
+        internal MutableBitField SetTrue (int index)
+            => Set (index, true);
+
+        internal new MutableBitField SetTrue ((int startPiece, int endPiece) range)
+        {
+            for (int i = range.startPiece; i <= range.endPiece; i++)
+                Set (i, true);
+            return this;
+        }
+
+        public new MutableBitField SetAll (bool value)
+           => (MutableBitField) base.SetAll (value);
+
+        public new MutableBitField Xor (BitField value)
+            => (MutableBitField) base.Xor (value);
+    }
+
     /// <summary>
     /// This class is for represting the Peer's bitfield
     /// </summary>
     [DebuggerDisplay ("{" + nameof (ToDebuggerString) + " ()}")]
-    public class BitField : ICloneable, IEnumerable<bool>
+    public class BitField : IEnumerable<bool>
     {
         #region Member Variables
 
@@ -108,16 +172,19 @@ namespace MonoTorrent
                     throw new ArgumentOutOfRangeException (nameof (index));
                 return TrueCount == Length || Get (index);
             }
-            internal set => Set (index, value);
+            private protected set => Set (index, value);
         }
 
-        object ICloneable.Clone ()
-            => Clone ();
+        internal MutableBitField AsMutable ()
+            => new MutableBitField (Length).From (this);
 
-        public BitField Clone ()
+        internal BitField Clone ()
+            => CloneInternal ();
+
+        private protected virtual BitField CloneInternal ()
             => new BitField (Length).From (this);
 
-        internal BitField From (BitField value)
+        private protected BitField From (BitField value)
         {
             Check (value);
             Buffer.BlockCopy (value.array, 0, array, 0, array.Length * 4);
@@ -125,7 +192,7 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField Not ()
+        private protected BitField Not ()
         {
             for (int i = 0; i < array.Length; i++)
                 array[i] = ~array[i];
@@ -134,7 +201,7 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField And (BitField value)
+        private protected BitField And (BitField value)
         {
             Check (value);
 
@@ -145,7 +212,7 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField NAnd (BitField value)
+        private protected BitField NAnd (BitField value)
         {
             Check (value);
 
@@ -156,7 +223,7 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField Or (BitField value)
+        private protected BitField Or (BitField value)
         {
             Check (value);
 
@@ -167,7 +234,7 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField Xor (BitField value)
+        private protected BitField Xor (BitField value)
         {
             Check (value);
 
@@ -351,7 +418,7 @@ namespace MonoTorrent
             return count;
         }
 
-        internal BitField Set (int index, bool value)
+        private protected BitField Set (int index, bool value)
         {
             if (index < 0 || index >= Length)
                 throw new ArgumentOutOfRangeException (nameof (index));
@@ -369,28 +436,28 @@ namespace MonoTorrent
             return this;
         }
 
-        internal BitField SetTrue ((int startPiece, int endPiece) range)
+        private protected BitField SetTrue ((int startPiece, int endPiece) range)
         {
             for (int i = range.startPiece; i <= range.endPiece; i++)
                 Set (i, true);
             return this;
         }
 
-        internal BitField SetTrue (params int[] indices)
+        private protected BitField SetTrue (params int[] indices)
         {
             foreach (int index in indices)
                 Set (index, true);
             return this;
         }
 
-        internal BitField SetFalse (params int[] indices)
+        private protected BitField SetFalse (params int[] indices)
         {
             foreach (int index in indices)
                 Set (index, false);
             return this;
         }
 
-        internal BitField SetAll (bool value)
+        private protected BitField SetAll (bool value)
         {
             if ((TrueCount == Length && value) || (!value && TrueCount == 0))
                 return this;

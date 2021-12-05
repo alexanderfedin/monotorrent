@@ -30,11 +30,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
+using System.Web;
 
 namespace MonoTorrent
 {
-    [DebuggerDisplay("InfoHash: (hex) {System.BitConverter.ToString (Hash)}")]
+    [DebuggerDisplay ("InfoHash: (hex) {System.BitConverter.ToString (Hash)}")]
     public class InfoHash : IEquatable<InfoHash>
     {
         static readonly Dictionary<char, byte> Base32DecodeTable;
@@ -47,48 +49,58 @@ namespace MonoTorrent
                 Base32DecodeTable[table[i]] = (byte) i;
         }
 
-        internal byte[] Hash { get; }
+        ReadOnlyMemory<byte> Hash { get; }
 
+        public ReadOnlySpan<byte> Span => Hash.Span;
+
+        /// <summary>
+        /// Clones the provided byte[] before storing the value internally.
+        /// </summary>
+        /// <param name="infoHash"></param>
         public InfoHash (byte[] infoHash)
         {
-            Check.InfoHash (infoHash);
+            if (infoHash is null)
+                throw new ArgumentNullException (nameof (infoHash));
             if (infoHash.Length != 20)
                 throw new ArgumentException ("InfoHash must be exactly 20 bytes long", nameof (infoHash));
             Hash = (byte[]) infoHash.Clone ();
         }
 
-        public override bool Equals (object obj)
+        /// <summary>
+        /// Clones the provided span before storing the value internally.
+        /// </summary>
+        /// <param name="infoHash"></param>
+        public InfoHash (ReadOnlySpan<byte> infoHash)
+            : this (new ReadOnlyMemory<byte> (infoHash.ToArray ()))
         {
-            return Equals (obj as InfoHash);
+
         }
 
-        public bool Equals (byte[] other)
+        InfoHash (ReadOnlyMemory<byte> infoHash)
         {
-            return other != null && other.Length == 20 && Toolbox.ByteMatch (Hash, other);
+            if (infoHash.Length != 20)
+                throw new ArgumentException ("InfoHash must be exactly 20 bytes long", nameof (infoHash));
+            Hash = infoHash;
         }
 
-        public bool Equals (InfoHash other)
-        {
-            return this == other;
-        }
+        public ReadOnlyMemory<byte> AsMemory ()
+            => Hash;
 
         public override int GetHashCode ()
-        {
-            // Equality is based generally on checking 20 positions, checking 4 should be enough
-            // for the hashcode as infohashes are randomly distributed.
-            return Hash[0] | (Hash[1] << 8) | (Hash[2] << 16) | (Hash[3] << 24);
-        }
+            => MemoryMarshal.Read<int> (Hash.Span);
 
-        public byte[] ToArray ()
-        {
-            return (byte[]) Hash.Clone ();
-        }
+        public override bool Equals (object obj)
+            => Equals (obj as InfoHash);
+
+        public bool Equals (InfoHash other)
+            => this == other;
 
         public string ToHex ()
         {
+            var span = Hash.Span;
             var sb = new StringBuilder (40);
             for (int i = 0; i < Hash.Length; i++) {
-                string hex = Hash[i].ToString ("X");
+                string hex = span[i].ToString ("X");
                 if (hex.Length != 2)
                     sb.Append ("0");
                 sb.Append (hex);
@@ -97,9 +109,7 @@ namespace MonoTorrent
         }
 
         public string UrlEncode ()
-        {
-            return UriHelper.UrlEncode (Hash);
-        }
+            => HttpUtility.UrlEncode (Hash.Span.ToArray ());
 
         public static bool operator == (InfoHash left, InfoHash right)
         {
@@ -107,24 +117,25 @@ namespace MonoTorrent
                 return right is null;
             if (right is null)
                 return false;
-            return Toolbox.ByteMatch (left.Hash, right.Hash);
+
+            return left.Hash.Span.SequenceEqual (right.Hash.Span);
         }
 
         public static bool operator != (InfoHash left, InfoHash right)
-        {
-            return !(left == right);
-        }
+            => !(left == right);
 
         public static InfoHash FromBase32 (string infoHash)
         {
-            Check.InfoHash (infoHash);
+            if (infoHash is null)
+                throw new ArgumentNullException (nameof (infoHash));
+
             if (infoHash.Length != 32)
                 throw new ArgumentException ("InfoHash must be a base32 encoded 32 character string", nameof (infoHash));
 
             infoHash = infoHash.ToLower ();
             int infoHashOffset = 0;
-            byte[] hash = new byte[20];
-            byte[] temp = new byte[8];
+            Span<byte> hash = stackalloc byte[20];
+            Span<byte> temp = stackalloc byte[8];
             for (int i = 0; i < hash.Length;) {
                 for (int j = 0; j < 8; j++)
                     if (!Base32DecodeTable.TryGetValue (infoHash[infoHashOffset++], out temp[j]))
@@ -143,7 +154,9 @@ namespace MonoTorrent
 
         public static InfoHash FromHex (string infoHash)
         {
-            Check.InfoHash (infoHash);
+            if (infoHash is null)
+                throw new ArgumentNullException (nameof (infoHash));
+
             if (infoHash.Length != 40)
                 throw new ArgumentException ("InfoHash must be 40 characters long", nameof (infoHash));
 
@@ -154,10 +167,18 @@ namespace MonoTorrent
             return new InfoHash (hash);
         }
 
+        /// <summary>
+        /// Stores the supplied value internally.
+        /// </summary>
+        /// <param name="infoHash"></param>
+        public static InfoHash FromMemory (ReadOnlyMemory<byte> infoHash)
+            => new InfoHash (infoHash);
+
         public static InfoHash UrlDecode (string infoHash)
         {
-            infoHash = infoHash ?? throw new ArgumentNullException (nameof (infoHash));
-            return new InfoHash (UriHelper.UrlDecode (infoHash));
+            if (infoHash is null)
+                throw new ArgumentNullException (nameof (infoHash));
+            return new InfoHash (new ReadOnlyMemory<byte> (HttpUtility.UrlDecodeToBytes (infoHash)));
         }
     }
 }

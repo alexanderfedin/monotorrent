@@ -1,4 +1,4 @@
-//
+﻿//
 // Logger.cs
 //
 // Authors:
@@ -28,113 +28,22 @@
 
 
 using System;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
-
-using MonoTorrent.Client.Connections;
 
 namespace MonoTorrent.Logging
 {
-    public class Logger
+    public static class LoggerFactory
     {
         /// <summary>
         /// The factory method used to create new ILogger instances. The <see cref="string"/> parameter
         /// is the <see cref="Type.FullName"/> for the class the ILogger is associated with. You can
         /// return <see langword="null"/> for any class to disable logging for that class.
         /// </summary>
-        public static Func<string, ILogger> Factory { get; set; }
+        public static Func<string, ILogger> Factory { get; private set; }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static Logger Create ()
-        {
-            var callingClassName = new StackFrame (1).GetMethod ().ReflectedType.FullName;
-            var writer = Factory?.Invoke (callingClassName);
-            return new Logger (writer);
-        }
+        public static ILogger Create (string name)
+            => Factory?.Invoke (name);
 
-        ILogger Writer { get; }
-
-        internal Logger (ILogger writer)
-        {
-            Writer = writer;
-        }
-
-        internal void Info (string message)
-        {
-            if (Writer != null)
-                Writer.Info (message);
-        }
-
-        internal void Info (IConnection connection, string message)
-        {
-            if (Writer != null)
-                Writer.Info ($"{connection.Uri}: {message}");
-        }
-
-        internal void InfoFormatted (string format, int p1, int p2)
-        {
-            if (Writer != null)
-                Writer.Info (string.Format (format, p1, p2));
-        }
-
-        internal void InfoFormatted (string format, int p1, int p2, object p3)
-        {
-            if (Writer != null)
-                Writer.Info (string.Format (format, p1, p2, p3));
-        }
-
-        internal void InfoFormatted (string format, object p1)
-        {
-            if (Writer != null)
-                Writer.Info (string.Format (format, p1));
-        }
-
-        internal void InfoFormatted (string format, object p1, object p2)
-        {
-            if (Writer != null)
-                Writer.Info (string.Format (format, p1, p2));
-        }
-
-        internal void InfoFormatted (string format, object p1, int p2)
-        {
-            if (Writer != null)
-                Writer.Info (string.Format (format, p1, p2));
-        }
-
-        internal void InfoFormatted (IConnection connection, string formatString, int p1)
-        {
-            if (Writer != null)
-                Writer.Info ($"{connection.Uri}: {string.Format (formatString, p1)}");
-        }
-
-        internal void InfoFormatted (IConnection connection, string formatString, object p1)
-        {
-            if (Writer != null)
-                Writer.Info ($"{connection.Uri}: {string.Format (formatString, p1)}");
-        }
-
-        internal void Error (string message)
-        {
-            if (Writer != null)
-                Writer.Error (message);
-        }
-
-        internal void ErrorFormatted (string format, object p1)
-        {
-            if (Writer != null)
-                Writer.Error (string.Format (format, p1));
-        }
-
-        internal void Exception (Exception ex, string message)
-        {
-            if (Writer != null)
-                Writer.Error (string.Format ("{0}{1}{2}", message, Environment.NewLine, ex));
-        }
-
-        internal void ExceptionFormated (Exception ex, string formatString, object p1)
-        {
-            if (Writer != null)
-                Writer.Error (string.Format ("{0}{1}{2}", string.Format (formatString, p1), Environment.NewLine, ex));
-        }
+        public static void Register (Func<string, ILogger> creator)
+            => Factory = creator;
     }
 }

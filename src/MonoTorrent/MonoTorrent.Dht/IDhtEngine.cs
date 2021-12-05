@@ -28,10 +28,10 @@
 
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
-using MonoTorrent.BEncoding;
-using MonoTorrent.Dht.Listeners;
+using MonoTorrent.Connections.Dht;
 
 namespace MonoTorrent.Dht
 {
@@ -40,14 +40,16 @@ namespace MonoTorrent.Dht
         event EventHandler<PeersFoundEventArgs> PeersFound;
         event EventHandler StateChanged;
 
+        TimeSpan AnnounceInterval { get; }
         bool Disposed { get; }
+        TimeSpan MinimumAnnounceInterval { get; }
         DhtState State { get; }
 
-        void Add (BEncodedList nodes);
+        void Add (IEnumerable<byte[]> nodes);
         void Announce (InfoHash infohash, int port);
         void GetPeers (InfoHash infohash);
         Task<byte[]> SaveNodesAsync ();
-        void SetListener (IDhtListener listener);
+        Task SetListenerAsync (IDhtListener listener);
         Task StartAsync ();
         Task StartAsync (byte[] initialNodes);
         Task StopAsync ();

@@ -7,9 +7,10 @@ using System.Threading.Tasks;
 
 using MonoTorrent;
 using MonoTorrent.Client;
-using MonoTorrent.Client.PieceWriters;
-using MonoTorrent.Logging;
-using MonoTorrent.Tracker.Listeners;
+using MonoTorrent.Connections;
+using MonoTorrent.Connections.TrackerServer;
+using MonoTorrent.PieceWriter;
+using MonoTorrent.TrackerServer;
 
 using ReusableTasks;
 
@@ -17,6 +18,8 @@ namespace SampleClient
 {
     class NullWriter : IPieceWriter
     {
+        public int MaximumOpenFiles => 0;
+
         public ReusableTask CloseAsync (ITorrentFileInfo file)
         {
             return ReusableTask.CompletedTask;
@@ -41,12 +44,17 @@ namespace SampleClient
             return ReusableTask.CompletedTask;
         }
 
-        public ReusableTask<int> ReadAsync (ITorrentFileInfo file, long offset, byte[] buffer, int bufferOffset, int count)
+        public ReusableTask<int> ReadAsync (ITorrentFileInfo file, long offset, Memory<byte> buffer)
         {
             return ReusableTask.FromResult (0);
         }
 
-        public ReusableTask WriteAsync (ITorrentFileInfo file, long offset, byte[] buffer, int bufferOffset, int count)
+        public ReusableTask SetMaximumOpenFilesAsync (int maximumOpenFiles)
+        {
+            return ReusableTask.CompletedTask;
+        }
+
+        public ReusableTask WriteAsync (ITorrentFileInfo file, long offset, ReadOnlyMemory<byte> buffer)
         {
             return ReusableTask.CompletedTask;
         }
@@ -66,7 +74,7 @@ namespace SampleClient
                 new EngineSettingsBuilder {
                     AllowedEncryption = new[] { EncryptionType.PlainText },
                     DiskCacheBytes = DataSize,
-                    ListenPort = port++
+                    ListenEndPoint = new IPEndPoint (IPAddress.Any, port++)
                 }.ToSettings ()
             );
             await seeder.ChangePieceWriterAsync (new NullWriter ());
@@ -76,7 +84,7 @@ namespace SampleClient
                     new EngineSettingsBuilder {
                         AllowedEncryption = new[] { EncryptionType.PlainText },
                         DiskCacheBytes = DataSize,
-                        ListenPort = p,
+                        ListenEndPoint = new IPEndPoint (IPAddress.Any, p),
                     }.ToSettings ()
                 );
             }).ToArray ();
@@ -93,7 +101,7 @@ namespace SampleClient
             }
 
             var trackerListener = TrackerListenerFactory.CreateHttp (IPAddress.Parse ("127.0.0.1"), 25611);
-            var tracker = new MonoTorrent.Tracker.TrackerServer {
+            var tracker = new TrackerServer {
                 AllowUnregisteredTorrents = true
             };
             tracker.RegisterListener (trackerListener);
@@ -102,7 +110,7 @@ namespace SampleClient
             // Create the torrent file for the fake data
             var creator = new TorrentCreator ();
             creator.Announces.Add (new List<string> ());
-            creator.Announces [0].Add ("http://127.0.0.1:25611/announce");
+            creator.Announces[0].Add ("http://127.0.0.1:25611/announce");
 
             var metadata = await creator.CreateAsync (new TorrentFileSource (DataDir));
 
@@ -111,7 +119,7 @@ namespace SampleClient
             using (var fileStream = File.OpenRead (Path.Combine (DataDir, "file.data"))) {
                 while (fileStream.Position < fileStream.Length) {
                     var dataRead = new byte[16 * 1024];
-                    int offset = (int)fileStream.Position;
+                    int offset = (int) fileStream.Position;
                     int read = fileStream.Read (dataRead, 0, dataRead.Length);
                     // FIXME: Implement a custom IPieceWriter to handle this.
                     // The internal MemoryWriter is limited and isn't a general purpose read/write API

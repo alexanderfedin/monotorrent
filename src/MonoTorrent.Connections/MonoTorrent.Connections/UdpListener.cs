@@ -37,9 +37,9 @@ namespace MonoTorrent.Connections
 {
     public abstract class UdpListener : SocketListener, ISocketMessageListener
     {
-        public event Action<byte[], IPEndPoint> MessageReceived;
+        public event Action<byte[], IPEndPoint>? MessageReceived;
 
-        UdpClient Client { get; set; }
+        UdpClient? Client { get; set; }
 
         protected UdpListener (IPEndPoint endpoint)
             : base (endpoint)
@@ -48,11 +48,10 @@ namespace MonoTorrent.Connections
 
         public async Task SendAsync (byte[] buffer, IPEndPoint endpoint)
         {
-            if (Status == ListenerStatus.NotListening)
-                throw new InvalidOperationException ("You must invoke StartAsync before sending or receiving a message with this listener.");
             if (Status == ListenerStatus.PortNotFree)
                 throw new InvalidOperationException ($"The listener could not bind to ${LocalEndPoint}. Choose a new listening endpoint.");
-
+            if (Status == ListenerStatus.NotListening || Client == null)
+                throw new InvalidOperationException ("You must invoke StartAsync before sending or receiving a message with this listener.");
             await Client.SendAsync (buffer, buffer.Length, endpoint).ConfigureAwait (false);
         }
 
@@ -61,7 +60,7 @@ namespace MonoTorrent.Connections
             base.Start (token);
 
             UdpClient client = Client = new UdpClient (OriginalEndPoint);
-            LocalEndPoint = (IPEndPoint) client.Client.LocalEndPoint;
+            LocalEndPoint = (IPEndPoint?) client.Client.LocalEndPoint;
             token.Register (() => {
                 client.Dispose ();
                 Client = null;

@@ -48,6 +48,17 @@ namespace MonoTorrent.Dht
         MethodUnknown = 204//Method Unknown
     }
 
+    class TransferMonitor : ITransferMonitor
+    {
+        long ITransferMonitor.UploadRate => SendMonitor.Rate;
+        long ITransferMonitor.DownloadRate => ReceiveMonitor.Rate;
+        long ITransferMonitor.BytesSent => SendMonitor.Total;
+        long ITransferMonitor.BytesReceived => ReceiveMonitor.Total;
+
+        internal SpeedMonitor SendMonitor { get; } = new SpeedMonitor ();
+        internal SpeedMonitor ReceiveMonitor { get; } = new SpeedMonitor ();
+    }
+
     public class DhtEngine : IDisposable, IDhtEngine
     {
         static readonly TimeSpan DefaultAnnounceInternal = TimeSpan.FromMinutes (10);
@@ -55,22 +66,20 @@ namespace MonoTorrent.Dht
 
         #region Events
 
-        public event EventHandler<PeersFoundEventArgs> PeersFound;
-        public event EventHandler StateChanged;
+        public event EventHandler<PeersFoundEventArgs>? PeersFound;
+        public event EventHandler? StateChanged;
 
         #endregion Events
 
-        #region Fields
-
         internal static MainLoop MainLoop { get; } = new MainLoop ("DhtLoop");
-
-        #endregion Fields
 
         #region Properties
 
         public TimeSpan AnnounceInterval => DefaultAnnounceInternal;
 
         public bool Disposed { get; private set; }
+
+        public ITransferMonitor Monitor { get; }
 
         public TimeSpan MinimumAnnounceInterval => DefaultMinimumAnnounceInterval;
 
@@ -79,6 +88,7 @@ namespace MonoTorrent.Dht
         internal TimeSpan BucketRefreshTimeout { get; set; }
         internal NodeId LocalId => RoutingTable.LocalNode.Id;
         internal MessageLoop MessageLoop { get; }
+        public int NodeCount => RoutingTable.CountNodes ();
         internal RoutingTable RoutingTable { get; }
         internal TokenManager TokenManager { get; }
         internal Dictionary<NodeId, List<Node>> Torrents { get; }
@@ -88,18 +98,14 @@ namespace MonoTorrent.Dht
         #region Constructors
 
         public DhtEngine ()
-            : this (SHA1.Create ())
         {
-
-        }
-
-        public DhtEngine (SHA1 hasher)
-        {
+            var monitor = new TransferMonitor ();
             BucketRefreshTimeout = TimeSpan.FromMinutes (15);
-            MessageLoop = new MessageLoop (this);
+            MessageLoop = new MessageLoop (this, monitor);
+            Monitor = monitor;
             RoutingTable = new RoutingTable ();
             State = DhtState.NotReady;
-            TokenManager = new TokenManager (hasher);
+            TokenManager = new TokenManager ();
             Torrents = new Dictionary<NodeId, List<Node>> ();
 
             MainLoop.QueueTimeout (TimeSpan.FromMinutes (5), () => {
@@ -111,9 +117,7 @@ namespace MonoTorrent.Dht
 
         #endregion Constructors
 
-        #region Methods
-
-        public void Add (IEnumerable<byte[]> nodes)
+        public void Add (IEnumerable<ReadOnlyMemory<byte>> nodes)
         {
             // Maybe we should pipeline all our tasks to ensure we don't flood the DHT engine.
             // I don't think it's *bad* that we can run several initialise tasks simultaenously
@@ -147,7 +151,7 @@ namespace MonoTorrent.Dht
         public async void Announce (InfoHash infoHash, int port)
         {
             CheckDisposed ();
-            if (infoHash == null)
+            if (infoHash is null)
                 throw new ArgumentNullException (nameof (infoHash));
 
             try {
@@ -229,7 +233,7 @@ namespace MonoTorrent.Dht
                 await Task.WhenAll (refreshTasks).ConfigureAwait (false);
         }
 
-        public async Task<byte[]> SaveNodesAsync ()
+        public async Task<ReadOnlyMemory<byte>> SaveNodesAsync ()
         {
             await MainLoop;
 
@@ -273,7 +277,7 @@ namespace MonoTorrent.Dht
             await StartAsync (Array.Empty<byte> ());
         }
 
-        public async Task StartAsync (byte[] initialNodes)
+        public async Task StartAsync (ReadOnlyMemory<byte> initialNodes)
         {
             CheckDisposed ();
 
@@ -281,7 +285,8 @@ namespace MonoTorrent.Dht
             MessageLoop.Start ();
             if (RoutingTable.NeedsBootstrap) {
                 RaiseStateChanged (DhtState.Initialising);
-                InitializeAsync (Node.FromCompactNode (initialNodes ?? Array.Empty<byte> ()));
+                // HACK: We want to disambiguate between 'decode one' and 'decode many' when using a Span<byte>
+                InitializeAsync (Node.FromCompactNode (BEncodedString.FromMemory (initialNodes)));
             } else {
                 RaiseStateChanged (DhtState.Ready);
             }
@@ -310,7 +315,7 @@ namespace MonoTorrent.Dht
 
             var tcs = new TaskCompletionSource<object> ();
 
-            void handler (object o, EventArgs e)
+            void handler (object? o, EventArgs e)
             {
                 if (State == state) {
                     StateChanged -= handler;
@@ -324,7 +329,5 @@ namespace MonoTorrent.Dht
 
         public async Task SetListenerAsync (IDhtListener listener)
             => await MessageLoop.SetListener (listener);
-
-        #endregion Methods
     }
 }

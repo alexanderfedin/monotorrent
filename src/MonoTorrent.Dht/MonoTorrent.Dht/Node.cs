@@ -61,7 +61,7 @@ namespace MonoTorrent.Dht
                 return LastSeen.TotalMinutes < 15 ? NodeState.Good : NodeState.Questionable;
             }
         }
-        public BEncodedValue Token { get; set; }
+        public BEncodedValue? Token { get; set; }
 
         public Node (NodeId id, IPEndPoint endpoint)
         {
@@ -88,7 +88,7 @@ namespace MonoTorrent.Dht
         {
             byte[] buffer = new byte[6];
             CompactPort (buffer);
-            return buffer;
+            return new BEncodedString (buffer);
         }
 
         internal void CompactPort (Span<byte> buffer)
@@ -110,7 +110,7 @@ namespace MonoTorrent.Dht
         {
             byte[] buffer = new byte[26];
             CompactNode (buffer);
-            return buffer;
+            return new BEncodedString (buffer);
         }
 
         void CompactNode (Span<byte> buffer)
@@ -140,20 +140,15 @@ namespace MonoTorrent.Dht
             buffer.Slice (0, 20).CopyTo (id);
             var address = new IPAddress (BinaryPrimitives.ReadUInt32LittleEndian (buffer.Slice (20, 4)));
             int port = BinaryPrimitives.ReadUInt16BigEndian(buffer.Slice (24, 2));
-            return new Node (new NodeId (id), new IPEndPoint (address, port));
+            return new Node (NodeId.FromMemory (id), new IPEndPoint (address, port));
         }
 
-        internal static IEnumerable<Node> FromCompactNode (byte[] buffer)
+        internal static IEnumerable<Node> FromCompactNode (IEnumerable<ReadOnlyMemory<byte>> nodes)
         {
-            for (int i = 0; (i + 26) <= buffer.Length; i += 26)
-                yield return FromCompactNode (buffer.AsSpan (i, 26));
-        }
-
-        internal static IEnumerable<Node> FromCompactNode (IEnumerable<byte[]> nodes)
-        {
-            foreach (var rawNode in nodes)
-                foreach (var node in FromCompactNode (rawNode))
-                    yield return node;
+            foreach (var rawNode in nodes) {
+                for (int i = 0; (i + 26) <= rawNode.Length; i += 26)
+                    yield return FromCompactNode (rawNode.Span.Slice (i, 26));
+            }
         }
 
         internal static IEnumerable<Node> FromCompactNode (BEncodedString nodes)
@@ -180,7 +175,7 @@ namespace MonoTorrent.Dht
                         port = ((BEncodedNumber) val).Number;
                 }
 
-                IPAddress.TryParse (host, out IPAddress address);
+                IPAddress.TryParse (host, out IPAddress? address);
 
                 //REM: bad design from bitcomet we do not have node id so create it...
                 //or use torrent infohash?
@@ -190,12 +185,12 @@ namespace MonoTorrent.Dht
             }
         }
 
-        public override bool Equals (object obj)
+        public override bool Equals (object? obj)
         {
             return Equals (obj as Node);
         }
 
-        public bool Equals (Node other)
+        public bool Equals (Node? other)
         {
             return Id.Equals (other?.Id);
         }

@@ -27,6 +27,7 @@
 //
 
 
+using System;
 using System.Collections.Generic;
 
 namespace MonoTorrent.PiecePicking
@@ -90,7 +91,7 @@ namespace MonoTorrent.PiecePicking
         /// Reset all internal state.
         /// </summary>
         /// <param name="torrentData"></param>
-        void Initialise (ITorrentData torrentData);
+        void Initialise (ITorrentManagerInfo torrentData);
 
         /// <summary>
         /// 
@@ -98,7 +99,7 @@ namespace MonoTorrent.PiecePicking
         /// <param name="peer"></param>
         /// <param name="bitfield"></param>
         /// <returns></returns>
-        bool IsInteresting (IPeer peer, BitField bitfield);
+        bool IsInteresting (IPeer peer, ReadOnlyBitField bitfield);
 
         /// <summary>
         /// Called when a piece request has been rejected by a <paramref name="peer"/>, which indicates
@@ -114,11 +115,11 @@ namespace MonoTorrent.PiecePicking
         /// <param name="peer"></param>
         /// <param name="available"></param>
         /// <param name="otherPeers"></param>
-        /// <param name="count"></param>
         /// <param name="startIndex"></param>
         /// <param name="endIndex"></param>
+        /// <param name="requests"></param>
         /// <returns></returns>
-        IList<BlockInfo> PickPiece (IPeer peer, BitField available, IReadOnlyList<IPeer> otherPeers, int count, int startIndex, int endIndex);
+        int PickPiece (IPeer peer, ReadOnlyBitField available, IReadOnlyList<IPeer> otherPeers, int startIndex, int endIndex, Span<BlockInfo> requests);
 
         /// <summary>
         /// Called when a piece is received from the <paramref name="peer"/>. Returns true if the

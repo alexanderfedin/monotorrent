@@ -29,12 +29,12 @@
 
 namespace MonoTorrent
 {
-    public interface ITorrentFileInfo : ITorrentFile
+    public interface ITorrentManagerFile : ITorrentFile
     {
         /// <summary>
         /// The <see cref="BitField"/> tracking which pieces of this file have been downloaded.
         /// </summary>
-        BitField BitField { get; }
+        ReadOnlyBitField BitField { get; }
 
         /// <summary>
         /// If the file is currently being downloaded, this will be the same as <see cref="DownloadIncompleteFullPath"/>. Otherwise it will be <see cref="DownloadCompleteFullPath"/>
@@ -59,7 +59,7 @@ namespace MonoTorrent
 
     public static class ITorrentFileInfoExtensions
     {
-        public static long BytesDownloaded (this ITorrentFileInfo info)
+        public static long BytesDownloaded (this ITorrentManagerFile info)
             => (long) (info.BitField.PercentComplete * info.Length / 100.0);
     }
 }

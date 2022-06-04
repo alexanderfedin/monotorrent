@@ -71,7 +71,7 @@ namespace MonoTorrent.Client.Modes
             DiskManager = Manager.Engine.DiskManager;
             ConnectionManager = Manager.Engine.ConnectionManager;
 
-            Peer = new PeerId (new Peer ("", new Uri ("ipv4://123.123.123.123:12345"), EncryptionTypes.All), conn.Outgoing, new MutableBitField (Manager.Bitfield.Length).SetAll (true)) {
+            Peer = new PeerId (new Peer ("", new Uri ("ipv4://123.123.123.123:12345"), EncryptionTypes.All), conn.Outgoing, new BitField (Manager.Bitfield.Length).SetAll (true)) {
                 IsChoking = false,
                 AmInterested = true,
             };
@@ -132,19 +132,23 @@ namespace MonoTorrent.Client.Modes
             var pieceHashed = new TaskCompletionSource<byte[]> ();
             var secondPieceHashed = new TaskCompletionSource<byte[]> ();
 
-            var writer = new TestWriter ();
-            writer.FilesThatExist.AddRange (Manager.Files);
-            await Manager.Engine.ChangePieceWriterAsync (writer);
+            PieceWriter.FilesThatExist.AddRange (Manager.Files);
 
-            Manager.Engine.DiskManager.GetHashAsyncOverride = (torrentdata, pieceIndex) => {
+            Manager.Engine.DiskManager.GetHashAsyncOverride = async (torrentdata, pieceIndex, dest) => {
                 pieceTryHash.TrySetResult (null);
 
-                if (!pieceHashed.Task.IsCompleted)
-                    return pieceHashed.Task.WithTimeout ();
-                if (!secondPieceHashed.Task.IsCompleted)
-                    return secondPieceHashed.Task.WithTimeout ();
-
-                return Task.FromResult (new byte[20]);
+                if (!pieceHashed.Task.IsCompleted) {
+                    var data = await pieceHashed.Task.WithTimeout ();
+                    data.CopyTo (dest.V1Hash);
+                    return true;
+                }
+                if (!secondPieceHashed.Task.IsCompleted) {
+                    var data = await secondPieceHashed.Task.WithTimeout ();
+                    data.CopyTo (dest.V1Hash);
+                    return true;
+                }
+                new byte[20].CopyTo (dest.V1Hash);
+                return true;
             };
 
             var hashCheckTask = Manager.HashCheckAsync (false);
@@ -173,7 +177,7 @@ namespace MonoTorrent.Client.Modes
             Manager.PieceHashed += (o, e) => {
                 lock (args) {
                     args.Add (e);
-                    if (args.Count == Manager.Torrent.Pieces.Count)
+                    if (args.Count == Manager.Torrent.PieceCount)
                         tcs.SetResult (true);
                 }
             };
@@ -195,12 +199,12 @@ namespace MonoTorrent.Client.Modes
             Manager.MutableBitField.SetAll (true).Set (0, false);
             Manager.UnhashedPieces.SetAll (false).Set (0, true);
 
-            var origUnhashed = new BitField (Manager.UnhashedPieces);
-            var origBitfield = new BitField (Manager.Bitfield);
-            Manager.LoadFastResume (Manager.SaveFastResume ());
+            var origUnhashed = new ReadOnlyBitField (Manager.UnhashedPieces);
+            var origBitfield = new ReadOnlyBitField (Manager.Bitfield);
+            await Manager.LoadFastResumeAsync (await Manager.SaveFastResumeAsync ());
 
-            Assert.AreEqual (origUnhashed, Manager.UnhashedPieces, "#3");
-            Assert.AreEqual (origBitfield, Manager.Bitfield, "#4");
+            Assert.IsTrue (origUnhashed.SequenceEqual (Manager.UnhashedPieces), "#3");
+            Assert.IsTrue (origBitfield.SequenceEqual (Manager.Bitfield), "#4");
         }
 
         [Test]
@@ -211,7 +215,7 @@ namespace MonoTorrent.Client.Modes
             foreach (var f in Manager.Files) {
                 PieceWriter.FilesThatExist.Add (f);
                 await Manager.SetFilePriorityAsync (f, Priority.DoNotDownload);
-                ((MutableBitField) f.BitField).SetAll (true);
+                ((TorrentFileInfo) f).BitField.SetAll (true);
             }
 
             var hashingMode = new HashingMode (Manager, DiskManager, ConnectionManager, Settings);
@@ -231,12 +235,15 @@ namespace MonoTorrent.Client.Modes
         [Test]
         public async Task DoNotDownload_ThenDownload ()
         {
-            DiskManager.GetHashAsyncOverride = (manager, index) => {
-                if (index >= 0 && index <= 4)
-                    return Task.FromResult (Manager.Torrent.Pieces.ReadHash (index));
-
-                return Task.FromResult (Enumerable.Repeat ((byte) 255, 20).ToArray ());
+            DiskManager.GetHashAsyncOverride = (manager, index, dest) => {
+                if (index >= 0 && index <= 4) {
+                    Manager.Torrent.CreatePieceHashes ().GetHash (index).V1Hash.Span.CopyTo (dest.V1Hash.Span);
+                } else {
+                    Enumerable.Repeat ((byte) 255, 20).ToArray ().CopyTo (dest.V1Hash.Span);
+                }
+                return Task.FromResult (true);
             };
+
             Manager.MutableBitField.SetAll (true);
 
             foreach (var f in Manager.Files) {
@@ -275,12 +282,13 @@ namespace MonoTorrent.Client.Modes
         public async Task StopWhileHashingPendingFiles ()
         {
             var pieceHashCount = 0;
-            DiskManager.GetHashAsyncOverride = (manager, index) => {
+            DiskManager.GetHashAsyncOverride = (manager, index, dest) => {
                 pieceHashCount++;
                 if (pieceHashCount == 3)
                     Manager.StopAsync ().Wait ();
 
-                return Task.FromResult (Enumerable.Repeat ((byte) 0, 20).ToArray ());
+                Enumerable.Repeat ((byte) 0, 20).ToArray ().CopyTo (dest.V1Hash);
+                return Task.FromResult (true);
             };
 
             Manager.MutableBitField.SetAll (true);
@@ -302,11 +310,12 @@ namespace MonoTorrent.Client.Modes
             PieceWriter.FilesThatExist.AddRange (Manager.Files);
 
             int getHashCount = 0;
-            DiskManager.GetHashAsyncOverride = (manager, index) => {
+            DiskManager.GetHashAsyncOverride = (manager, index, dest) => {
                 getHashCount++;
                 if (getHashCount == 2)
                     Manager.PauseAsync ().Wait ();
-                return Task.FromResult (Enumerable.Repeat ((byte) 0, 20).ToArray ());
+                Enumerable.Repeat ((byte) 0, 20).ToArray ().CopyTo (dest.V1Hash);
+                return Task.FromResult (true);
             };
 
             var pausedState = Manager.WaitForState (TorrentState.HashingPaused);
@@ -360,8 +369,8 @@ namespace MonoTorrent.Client.Modes
                 Manager.Files[3],
             });
 
-            var bf = new MutableBitField (Manager.PieceCount ()).SetAll (true);
-            Manager.LoadFastResume (new FastResume (Manager.InfoHash, bf, Manager.UnhashedPieces.SetAll (false)));
+            var bf = new BitField (Manager.Torrent.PieceCount ()).SetAll (true);
+            await Manager.LoadFastResumeAsync (new FastResume (Manager.InfoHashes, bf, Manager.UnhashedPieces.SetAll (false)));
 
             Assert.IsTrue (Manager.Bitfield.AllTrue, "#1");
             foreach (var file in Manager.Files)

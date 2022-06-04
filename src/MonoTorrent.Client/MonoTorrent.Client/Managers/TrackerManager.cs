@@ -44,8 +44,8 @@ namespace MonoTorrent.Trackers
     /// </summary>
     class TrackerManager : ITrackerManager
     {
-        public event EventHandler<AnnounceResponseEventArgs> AnnounceComplete;
-        public event EventHandler<ScrapeResponseEventArgs> ScrapeComplete;
+        public event EventHandler<AnnounceResponseEventArgs>? AnnounceComplete;
+        public event EventHandler<ScrapeResponseEventArgs>? ScrapeComplete;
 
         public SemaphoreSlim AnnounceLimiter { get; }
 
@@ -228,10 +228,10 @@ namespace MonoTorrent.Trackers
             await trackerTier.ScrapeAsync (args, tracker, token);
         }
 
-        void RaiseAnnounceComplete (object sender, AnnounceResponseEventArgs args)
+        void RaiseAnnounceComplete (object? sender, AnnounceResponseEventArgs args)
             => AnnounceComplete?.InvokeAsync (this, args);
 
-        void RaiseScrapeComplete (object sender, ScrapeResponseEventArgs args)
+        void RaiseScrapeComplete (object? sender, ScrapeResponseEventArgs args)
             => ScrapeComplete?.InvokeAsync (this, args);
     }
 }

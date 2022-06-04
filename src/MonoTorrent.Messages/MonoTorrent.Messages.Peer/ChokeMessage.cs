@@ -36,20 +36,23 @@ namespace MonoTorrent.Messages.Peer
     /// </summary>
     public class ChokeMessage : PeerMessage
     {
+        public static ChokeMessage Instance { get; } = new ChokeMessage ();
+
         const int messageLength = 1;
         internal static readonly byte MessageId = 0;
 
-        #region Constructors
+        /// <summary>
+        /// Returns the length of the message in bytes
+        /// </summary>
+        public override int ByteLength => (messageLength + 4);
+
         /// <summary>
         /// Creates a new ChokeMessage
         /// </summary>
         public ChokeMessage ()
         {
         }
-        #endregion
 
-
-        #region Methods
         public override int Encode (Span<byte> buffer)
         {
             int written = buffer.Length;
@@ -65,32 +68,13 @@ namespace MonoTorrent.Messages.Peer
             // No decoding needed
         }
 
-        /// <summary>
-        /// Returns the length of the message in bytes
-        /// </summary>
-        public override int ByteLength => (messageLength + 4);
-        #endregion
-
-
-        #region Overridden Methods
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <returns></returns>
-        public override string ToString ()
-        {
-            return "ChokeMessage";
-        }
-
-        public override bool Equals (object obj)
-        {
-            return (obj is ChokeMessage);
-        }
+        public override bool Equals (object? obj)
+            => obj is ChokeMessage;
 
         public override int GetHashCode ()
-        {
-            return ToString ().GetHashCode ();
-        }
-        #endregion
+            => MessageId;
+
+        public override string ToString ()
+            => "ChokeMessage";
     }
 }

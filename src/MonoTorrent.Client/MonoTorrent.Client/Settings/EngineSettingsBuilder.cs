@@ -34,6 +34,7 @@ using System.Linq;
 using System.Net;
 
 using MonoTorrent.Connections;
+using MonoTorrent.Dht;
 
 namespace MonoTorrent.Client
 {
@@ -46,16 +47,16 @@ namespace MonoTorrent.Client
             bool allowLocalPeerDiscovery = false,
             bool allowPortForwarding = false,
             bool automaticFastResume = false,
-            IPEndPoint dhtEndPoint = null,
-            IPEndPoint listenEndPoint = null,
-            string cacheDirectory = null,
+            IPEndPoint? dhtEndPoint = null,
+            IPEndPoint? listenEndPoint = null,
+            string? cacheDirectory = null,
             bool usePartialFiles = false)
         {
             return new EngineSettingsBuilder {
                 AllowLocalPeerDiscovery = allowLocalPeerDiscovery,
                 AllowPortForwarding = allowPortForwarding,
                 AutoSaveLoadFastResume = automaticFastResume,
-                CacheDirectory = cacheDirectory ?? Path.Combine (Path.GetDirectoryName (typeof (EngineSettingsBuilder).Assembly.Location), "test_cache_dir"),
+                CacheDirectory = cacheDirectory ?? Path.Combine (Path.GetDirectoryName (typeof (EngineSettingsBuilder).Assembly.Location)!, "test_cache_dir"),
                 DhtEndPoint = dhtEndPoint,
                 ListenEndPoint = listenEndPoint,
                 UsePartialFiles = usePartialFiles,
@@ -67,10 +68,10 @@ namespace MonoTorrent.Client
         int maximumConnections;
         int maximumDiskReadRate;
         int maximumDiskWriteRate;
-        int maximumDownloadSpeed;
+        int maximumDownloadRate;
         int maximumHalfOpenConnections;
         int maximumOpenFiles;
-        int maximumUploadSpeed;
+        int maximumUploadRate;
 
         /// <summary>
         /// A prioritised list of encryption methods, including plain text, which can be used to connect to another peer.
@@ -100,7 +101,7 @@ namespace MonoTorrent.Client
         /// <summary>
         /// If set to true dht nodes will be implicitly saved when there are no active <see cref="TorrentManager"/> instances in the engine.
         /// Dht nodes will be restored when the first <see cref="TorrentManager"/> is started. Otherwise dht nodes will not be cached between
-        /// restarts and the <see cref="DhtEngine"/> will have to bootstrap from scratch each time.
+        /// restarts and the <see cref="IDhtEngine"/> will have to bootstrap from scratch each time.
         /// Defaults to <see langword="true"/>.
         /// </summary>
         public bool AutoSaveLoadDhtCache { get; set; }
@@ -161,7 +162,7 @@ namespace MonoTorrent.Client
         /// The UDP port used for DHT communications. Use 0 to choose a random available port.
         /// Choose -1 to disable DHT. Defaults to 0.
         /// </summary>
-        public IPEndPoint DhtEndPoint { get; set; }
+        public IPEndPoint? DhtEndPoint { get; set; }
 
         /// <summary>
         /// When <see cref="EngineSettings.AutoSaveLoadFastResume"/> is true, this setting is used to control how fast
@@ -178,7 +179,7 @@ namespace MonoTorrent.Client
         /// The TCP port the engine should listen on for incoming connections. Use 0 to choose a random
         /// available port. Choose -1 to disable listening for incoming connections. Defaults to 0.
         /// </summary>
-        public IPEndPoint ListenEndPoint { get; set; }
+        public IPEndPoint? ListenEndPoint { get; set; }
 
         /// <summary>
         /// The maximum number of concurrent open connections overall. Defaults to 150.
@@ -189,11 +190,11 @@ namespace MonoTorrent.Client
         }
 
         /// <summary>
-        /// The maximum download speed, in bytes per second, overall. A value of 0 means unlimited. Defaults to 0.
+        /// The maximum download rate, in bytes per second, overall. A value of 0 means unlimited. Defaults to 0.
         /// </summary>
-        public int MaximumDownloadSpeed {
-            get => maximumDownloadSpeed;
-            set => maximumDownloadSpeed = CheckZeroOrPositive (value);
+        public int MaximumDownloadRate {
+            get => maximumDownloadRate;
+            set => maximumDownloadRate = CheckZeroOrPositive (value);
         }
 
         /// <summary>
@@ -205,11 +206,11 @@ namespace MonoTorrent.Client
         }
 
         /// <summary>
-        /// The maximum upload speed, in bytes per second, overall. A value of 0 means unlimited. defaults to 0.
+        /// The maximum upload rate, in bytes per second, overall. A value of 0 means unlimited. defaults to 0.
         /// </summary>
-        public int MaximumUploadSpeed {
-            get => maximumUploadSpeed;
-            set => maximumUploadSpeed = CheckZeroOrPositive (value);
+        public int MaximumUploadRate {
+            get => maximumUploadRate;
+            set => maximumUploadRate = CheckZeroOrPositive (value);
         }
 
         /// <summary>
@@ -223,7 +224,7 @@ namespace MonoTorrent.Client
         }
 
         /// <summary>
-        /// The maximum disk read speed, in bytes per second. A value of 0 means unlimited. This is
+        /// The maximum disk read rate, in bytes per second. A value of 0 means unlimited. This is
         /// typically only useful for non-SSD drives to prevent the hashing process from saturating
         /// the available drive bandwidth. Defaults to 0.
         /// </summary>
@@ -233,9 +234,9 @@ namespace MonoTorrent.Client
         }
 
         /// <summary>
-        /// The maximum disk write speed, in bytes per second. A value of 0 means unlimited. This is
+        /// The maximum disk write rate, in bytes per second. A value of 0 means unlimited. This is
         /// typically only useful for non-SSD drives to prevent the downloading process from saturating
-        /// the available drive bandwidth. If the download speed exceeds the max write rate then the
+        /// the available drive bandwidth. If the download rate exceeds the max write rate then the
         /// download will be throttled. Defaults to 0.
         /// </summary>
         public int MaximumDiskWriteRate {
@@ -248,7 +249,7 @@ namespace MonoTorrent.Client
         /// Announce or Scrape requests are sent from, specify it here. Typically this should not be set.
         /// Defaults to <see langword="null" />
         /// </summary>
-        public IPEndPoint ReportedAddress { get; set; }
+        public IPEndPoint? ReportedAddress { get; set; }
 
         /// <summary>
         /// If set to <see langword="true"/> then partially downloaded files will have ".!mt" appended to their filename. When the file is fully downloaded, the ".!mt" suffix will be removed.
@@ -281,10 +282,10 @@ namespace MonoTorrent.Client
             MaximumConnections = settings.MaximumConnections;
             MaximumDiskReadRate = settings.MaximumDiskReadRate;
             MaximumDiskWriteRate = settings.MaximumDiskWriteRate;
-            MaximumDownloadSpeed = settings.MaximumDownloadSpeed;
+            MaximumDownloadRate = settings.MaximumDownloadRate;
             MaximumHalfOpenConnections = settings.MaximumHalfOpenConnections;
             MaximumOpenFiles = settings.MaximumOpenFiles;
-            MaximumUploadSpeed = settings.MaximumUploadSpeed;
+            MaximumUploadRate = settings.MaximumUploadRate;
             ReportedAddress = settings.ReportedAddress;
             UsePartialFiles = settings.UsePartialFiles;
         }
@@ -315,10 +316,10 @@ namespace MonoTorrent.Client
                 maximumConnections: MaximumConnections,
                 maximumDiskReadRate: MaximumDiskReadRate,
                 maximumDiskWriteRate: MaximumDiskWriteRate,
-                maximumDownloadSpeed: MaximumDownloadSpeed,
+                maximumDownloadRate: MaximumDownloadRate,
                 maximumHalfOpenConnections: MaximumHalfOpenConnections,
                 maximumOpenFiles: MaximumOpenFiles,
-                maximumUploadSpeed: MaximumUploadSpeed,
+                maximumUploadRate: MaximumUploadRate,
                 reportedAddress: ReportedAddress,
                 usePartialFiles: UsePartialFiles
             );

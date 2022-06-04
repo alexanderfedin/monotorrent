@@ -41,8 +41,8 @@ namespace MonoTorrent.Trackers
     {
         static readonly Logger logger = Logger.Create (nameof (TrackerTier));
 
-        internal event EventHandler<AnnounceResponseEventArgs> AnnounceComplete;
-        internal event EventHandler<ScrapeResponseEventArgs> ScrapeComplete;
+        internal event EventHandler<AnnounceResponseEventArgs>? AnnounceComplete;
+        internal event EventHandler<ScrapeResponseEventArgs>? ScrapeComplete;
 
         /// <summary>
         /// The <see cref="ITracker"/> which Announce and Scrape requests will be sent
@@ -122,16 +122,16 @@ namespace MonoTorrent.Trackers
         {
             var trackerList = new List<ITracker> ();
             foreach (string trackerUrl in trackerUrls) {
-                if (!Uri.TryCreate (trackerUrl, UriKind.Absolute, out Uri result)) {
+                if (!Uri.TryCreate (trackerUrl, UriKind.Absolute, out Uri? result)) {
                     logger.InfoFormatted ("Invalid tracker Url specified: {0}", trackerUrl);
                     continue;
                 }
 
-                ITracker tracker = factories.CreateTracker (result);
-                if (tracker != null) {
-                    trackerList.Add (tracker);
-                } else {
+                ITracker? tracker = factories.CreateTracker (result);
+                if (tracker is null) {
                     logger.InfoFormatted ("Unsupported protocol {0}", result);
+                } else {
+                    trackerList.Add (tracker);
                 }
             }
 

@@ -28,6 +28,7 @@
 
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 
 using MonoTorrent.BEncoding;
@@ -48,17 +49,17 @@ namespace MonoTorrent.Client
         internal static readonly BEncodedString UnhashedPiecesKey = "unhashed_pieces";
         internal static readonly BEncodedString VersionKey = "version";
 
-        public BitField Bitfield { get; }
+        public ReadOnlyBitField Bitfield { get; }
 
-        public InfoHash Infohash { get; }
+        public InfoHashes InfoHashes { get; }
 
-        public BitField UnhashedPieces { get; }
+        public ReadOnlyBitField UnhashedPieces { get; }
 
-        internal FastResume (InfoHash infoHash, BitField bitfield, BitField unhashedPieces)
+        internal FastResume (InfoHashes infoHashes, ReadOnlyBitField bitfield, ReadOnlyBitField unhashedPieces)
         {
-            Infohash = infoHash ?? throw new ArgumentNullException (nameof (infoHash));
-            Bitfield = new BitField (bitfield);
-            UnhashedPieces = new BitField (unhashedPieces);
+            InfoHashes = infoHashes ?? throw new ArgumentNullException (nameof (infoHashes));
+            Bitfield = new ReadOnlyBitField (bitfield);
+            UnhashedPieces = new ReadOnlyBitField (unhashedPieces);
 
             for (int i = 0; i < Bitfield.Length; i++) {
                 if (bitfield[i] && unhashedPieces[i])
@@ -73,17 +74,22 @@ namespace MonoTorrent.Client
             CheckContent (dict, BitfieldKey);
             CheckContent (dict, BitfieldLengthKey);
 
-            Infohash = InfoHash.FromMemory (((BEncodedString) dict[InfoHashKey]).AsMemory ());
+            // BEP52: Support backwards/forwards compatibility
+            var infoHash = InfoHash.FromMemory (((BEncodedString) dict[InfoHashKey]).AsMemory ());
+            if (infoHash.Span.Length == 20)
+                InfoHashes = InfoHashes.FromV1 (infoHash);
+            else
+                InfoHashes = InfoHashes.FromV2 (infoHash);
 
             var data = ((BEncodedString) dict[BitfieldKey]).Span;
-            Bitfield = new BitField (data, (int) ((BEncodedNumber) dict[BitfieldLengthKey]).Number);
+            Bitfield = new ReadOnlyBitField (data, (int) ((BEncodedNumber) dict[BitfieldLengthKey]).Number);
 
             // If we're loading up an older version of the FastResume data then we
             if (dict.ContainsKey (UnhashedPiecesKey)) {
                 data = ((BEncodedString) dict[UnhashedPiecesKey]).Span;
-                UnhashedPieces = new BitField (data, Bitfield.Length);
+                UnhashedPieces = new ReadOnlyBitField (data, Bitfield.Length);
             } else {
-                UnhashedPieces = new BitField (Bitfield.Length);
+                UnhashedPieces = new ReadOnlyBitField (Bitfield.Length);
             }
         }
 
@@ -106,10 +112,10 @@ namespace MonoTorrent.Client
         {
             return new BEncodedDictionary {
                 { VersionKey, FastResumeVersion },
-                { InfoHashKey, new BEncodedString(Infohash.Span.ToArray ()) },
-                { BitfieldKey, new BEncodedString(Bitfield.ToByteArray()) },
+                { InfoHashKey, new BEncodedString(InfoHashes.V1OrV2.Span.ToArray ()) },
+                { BitfieldKey, new BEncodedString(Bitfield.ToBytes()) },
                 { BitfieldLengthKey, (BEncodedNumber)Bitfield.Length },
-                { UnhashedPiecesKey, new BEncodedString (UnhashedPieces.ToByteArray ()) }
+                { UnhashedPiecesKey, new BEncodedString (UnhashedPieces.ToBytes ()) }
             }.Encode ();
         }
 
@@ -119,19 +125,34 @@ namespace MonoTorrent.Client
             s.Write (data, 0, data.Length);
         }
 
-        public static bool TryLoad (string fastResumeFilePath, out FastResume fastResume)
+        public static bool TryLoad (Stream s, [NotNullWhen (true)] out FastResume? fastResume)
         {
+            fastResume = Load (s);
+            return fastResume != null;
+        }
+
+        public static bool TryLoad (string fastResumeFilePath, [NotNullWhen (true)] out FastResume? fastResume)
+        {
+            fastResume = null;
             try {
                 if (File.Exists (fastResumeFilePath)) {
-                    var data = (BEncodedDictionary) BEncodedDictionary.Decode (File.ReadAllBytes (fastResumeFilePath));
-                    fastResume = new FastResume (data);
-                } else {
-                    fastResume = null;
+                    using (FileStream s = File.Open (fastResumeFilePath, FileMode.Open)) {
+                        fastResume = Load (s);
+                    }
                 }
             } catch {
-                fastResume = null;
             }
             return fastResume != null;
+        }
+
+        static FastResume? Load (Stream s)
+        {
+            try {
+                var data = (BEncodedDictionary) BEncodedDictionary.Decode (s);
+                return new FastResume (data);
+            } catch {
+            }
+            return null;
         }
     }
 }

@@ -57,11 +57,11 @@ namespace MonoTorrent.Client
             T builder = new T ();
             var props = builder.GetType ().GetProperties ();
             foreach (var property in props) {
-                if (!dict.TryGetValue (property.Name, out BEncodedValue value))
+                if (!dict.TryGetValue (property.Name, out BEncodedValue? value))
                     continue;
 
                 if (property.PropertyType == typeof (bool)) {
-                    property.SetValue (builder, bool.Parse (value.ToString ()));
+                    property.SetValue (builder, bool.Parse (value.ToString ()!));
                 } else if (property.PropertyType == typeof (string)) {
                     property.SetValue (builder, ((BEncodedString) value).Text);
                 } else if (property.PropertyType == typeof (FastResumeMode)) {
@@ -74,7 +74,7 @@ namespace MonoTorrent.Client
                     property.SetValue (builder, IPAddress.Parse (((BEncodedString) value).Text));
                 } else if (property.PropertyType == typeof (IPEndPoint)) {
                     var list = (BEncodedList) value;
-                    IPEndPoint endPoint = null;
+                    IPEndPoint? endPoint = null;
                     if (list.Count == 2) {
                         var ipAddress = (BEncodedString) list.Single (t => t is BEncodedString);
                         var port = (BEncodedNumber) list.Single (t => t is BEncodedNumber);
@@ -82,7 +82,7 @@ namespace MonoTorrent.Client
                     }
                     property.SetValue (builder, endPoint);
                 } else if (property.PropertyType == typeof (IList<EncryptionType>)) {
-                    var list = (IList<EncryptionType>) property.GetValue (builder);
+                    var list = (IList<EncryptionType>) property.GetValue (builder)!;
                     list.Clear ();
                     foreach (BEncodedString encryptionType in (BEncodedList) value)
                         list.Add ((EncryptionType) Enum.Parse (typeof (EncryptionType), encryptionType.Text));
@@ -97,7 +97,7 @@ namespace MonoTorrent.Client
             var dict = new BEncodedDictionary ();
             var props = builder.GetType ().GetProperties ();
             foreach (var property in props) {
-                BEncodedValue convertedValue = property.GetValue (builder) switch {
+                BEncodedValue? convertedValue = property.GetValue (builder) switch {
                     bool value => convertedValue = new BEncodedString (value.ToString ()),
                     IList<EncryptionType> value => convertedValue = new BEncodedList (value.Select (v => (BEncodedString) v.ToString ())),
                     string value => new BEncodedString (value),

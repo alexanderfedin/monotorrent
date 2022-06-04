@@ -39,16 +39,16 @@ namespace MonoTorrent.Client
 {
     class NetworkIO
     {
-        internal static SocketMemoryPool BufferPool { get; } = new SocketMemoryPool ();
+        internal static MemoryPool BufferPool { get; } = MemoryPool.Default;
 
         public struct QueuedIO
         {
             public IPeerConnection connection;
-            public SocketMemory buffer;
+            public Memory<byte> buffer;
             public IRateLimiter rateLimiter;
             public ReusableTaskCompletionSource<int> tcs;
 
-            public QueuedIO (IPeerConnection connection, SocketMemory buffer, IRateLimiter rateLimiter, ReusableTaskCompletionSource<int> tcs)
+            public QueuedIO (IPeerConnection connection, Memory<byte> buffer, IRateLimiter rateLimiter, ReusableTaskCompletionSource<int> tcs)
             {
                 this.connection = connection;
                 this.buffer = buffer;
@@ -117,19 +117,19 @@ namespace MonoTorrent.Client
             await connection.ConnectAsync ();
         }
 
-        public static ReusableTask ReceiveAsync (IPeerConnection connection, SocketMemory buffer)
+        public static ReusableTask ReceiveAsync (IPeerConnection connection, Memory<byte> buffer)
         {
             return ReceiveAsync (connection, buffer, null, null, null);
         }
 
-        public static async ReusableTask ReceiveAsync (IPeerConnection connection, SocketMemory buffer, IRateLimiter rateLimiter, SpeedMonitor peerMonitor, SpeedMonitor managerMonitor)
+        public static async ReusableTask ReceiveAsync (IPeerConnection connection, Memory<byte> buffer, IRateLimiter? rateLimiter, SpeedMonitor? peerMonitor, SpeedMonitor? managerMonitor)
         {
             await MainLoop.SwitchToThreadpool ();
 
             while (buffer.Length > 0) {
                 int transferred;
                 bool unlimited = rateLimiter?.Unlimited ?? true;
-                int shouldRead = unlimited ? buffer.Length : Math.Min (ChunkLength, buffer.Length);
+                int shouldRead = unlimited || !rateLimiter!.PreferredChunkSize.HasValue ? buffer.Length : Math.Min (rateLimiter.PreferredChunkSize.Value, buffer.Length);
 
                 if (rateLimiter != null && !unlimited && !rateLimiter.TryProcess (shouldRead)) {
                     var tcs = new ReusableTaskCompletionSource<int> ();
@@ -150,19 +150,19 @@ namespace MonoTorrent.Client
             }
         }
 
-        public static ReusableTask SendAsync (IPeerConnection connection, SocketMemory buffer)
+        public static ReusableTask SendAsync (IPeerConnection connection, Memory<byte> buffer)
         {
             return SendAsync (connection, buffer, null, null, null);
         }
 
-        public static async ReusableTask SendAsync (IPeerConnection connection, SocketMemory buffer, IRateLimiter rateLimiter, SpeedMonitor peerMonitor, SpeedMonitor managerMonitor)
+        public static async ReusableTask SendAsync (IPeerConnection connection, Memory<byte> buffer, IRateLimiter? rateLimiter, SpeedMonitor? peerMonitor, SpeedMonitor? managerMonitor)
         {
             await MainLoop.SwitchToThreadpool ();
 
             while (buffer.Length > 0) {
                 int transferred;
                 bool unlimited = rateLimiter?.Unlimited ?? true;
-                int shouldRead = unlimited ? buffer.Length : Math.Min (ChunkLength, buffer.Length);
+                int shouldRead = unlimited || !rateLimiter!.PreferredChunkSize.HasValue ? buffer.Length : Math.Min (rateLimiter.PreferredChunkSize.Value, buffer.Length);
 
                 if (rateLimiter != null && !unlimited && !rateLimiter.TryProcess (shouldRead)) {
                     var tcs = new ReusableTaskCompletionSource<int> ();

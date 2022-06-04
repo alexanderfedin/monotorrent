@@ -135,8 +135,8 @@ namespace MonoTorrent.TrackerServer
         /// <param name="compact">True if the peers should be in compact form</param>
         internal void GetPeers (BEncodedDictionary response, int count, bool compact)
         {
-            byte[] compactResponse = null;
-            BEncodedList nonCompactResponse = null;
+            byte[]? compactResponse = null;
+            BEncodedList? nonCompactResponse = null;
 
             int total = Math.Min (Peers.Count, count);
             // If we have a compact response, we need to create a single BencodedString
@@ -156,17 +156,17 @@ namespace MonoTorrent.TrackerServer
             while (total > 0) {
                 Peer current = PeersList[(start++) % PeersList.Count];
                 if (compact) {
-                    Buffer.BlockCopy (current.CompactEntry, 0, compactResponse, (total - 1) * 6, 6);
+                    Buffer.BlockCopy (current.CompactEntry, 0, compactResponse!, (total - 1) * 6, 6);
                 } else {
-                    nonCompactResponse.Add (current.NonCompactEntry);
+                    nonCompactResponse!.Add (current.NonCompactEntry);
                 }
                 total--;
             }
 
             if (compact)
-                response.Add (TrackerServer.PeersKey, (BEncodedString) compactResponse);
+                response.Add (TrackerServer.PeersKey, (BEncodedString) compactResponse!);
             else
-                response.Add (TrackerServer.PeersKey, nonCompactResponse);
+                response.Add (TrackerServer.PeersKey, nonCompactResponse!);
         }
 
         internal void ClearZombiePeers (DateTime cutoff)
@@ -226,7 +226,7 @@ namespace MonoTorrent.TrackerServer
         internal void Update (AnnounceRequest par)
         {
             object peerKey = Comparer.GetKey (par);
-            if (!Peers.TryGetValue (peerKey, out Peer peer)) {
+            if (!Peers.TryGetValue (peerKey, out Peer? peer)) {
                 peer = new Peer (par, peerKey);
                 Add (peer);
             } else {

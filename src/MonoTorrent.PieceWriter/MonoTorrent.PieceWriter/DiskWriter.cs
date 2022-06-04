@@ -40,8 +40,11 @@ namespace MonoTorrent.PieceWriter
     {
         static readonly int DefaultMaxOpenFiles = 196;
 
-        static readonly Func<ITorrentFileInfo, FileAccess, Stream> DefaultStreamCreator =
-            (file, access) => new FileStream (file.FullPath, FileMode.OpenOrCreate, access, FileShare.ReadWrite, 1, FileOptions.RandomAccess);
+        // Don't pass FileOptions.RandomAccess
+        // https://docs.microsoft.com/en-GB/troubleshoot/windows-server/application-management/operating-system-performance-degrades
+        //
+        static readonly Func<ITorrentManagerFile, FileAccess, Stream> DefaultStreamCreator =
+            (file, access) => new FileStream (file.FullPath, FileMode.OpenOrCreate, access, FileShare.ReadWrite, 1, FileOptions.None);
 
         SemaphoreSlim Limiter { get; set; }
 
@@ -55,7 +58,7 @@ namespace MonoTorrent.PieceWriter
 
         }
 
-        internal DiskWriter (Func<ITorrentFileInfo, FileAccess, Stream> streamCreator)
+        internal DiskWriter (Func<ITorrentManagerFile, FileAccess, Stream> streamCreator)
             : this (streamCreator, DefaultMaxOpenFiles)
         {
 
@@ -67,7 +70,7 @@ namespace MonoTorrent.PieceWriter
 
         }
 
-        internal DiskWriter (Func<ITorrentFileInfo, FileAccess, Stream> streamCreator, int maxOpenFiles)
+        internal DiskWriter (Func<ITorrentManagerFile, FileAccess, Stream> streamCreator, int maxOpenFiles)
         {
             StreamCache = new FileStreamBuffer (streamCreator, maxOpenFiles);
             Limiter = new SemaphoreSlim (maxOpenFiles);
@@ -78,32 +81,32 @@ namespace MonoTorrent.PieceWriter
             StreamCache.Dispose ();
         }
 
-        public async ReusableTask CloseAsync (ITorrentFileInfo file)
+        public async ReusableTask CloseAsync (ITorrentManagerFile file)
         {
             await StreamCache.CloseStreamAsync (file);
         }
 
-        public ReusableTask<bool> ExistsAsync (ITorrentFileInfo file)
+        public ReusableTask<bool> ExistsAsync (ITorrentManagerFile file)
         {
             return ReusableTask.FromResult (File.Exists (file.FullPath));
         }
 
-        public async ReusableTask FlushAsync (ITorrentFileInfo file)
+        public async ReusableTask FlushAsync (ITorrentManagerFile file)
             => await StreamCache.FlushAsync (file);
 
-        public async ReusableTask MoveAsync (ITorrentFileInfo file, string newPath, bool overwrite)
+        public async ReusableTask MoveAsync (ITorrentManagerFile file, string newPath, bool overwrite)
         {
             await StreamCache.CloseStreamAsync (file);
 
             if (overwrite)
                 File.Delete (newPath);
             if (File.Exists (file.FullPath)) {
-                Directory.CreateDirectory (Path.GetDirectoryName (newPath));
+                Directory.CreateDirectory (Path.GetDirectoryName (newPath)!);
                 File.Move (file.FullPath, newPath);
             }
         }
 
-        public async ReusableTask<int> ReadAsync (ITorrentFileInfo file, long offset, Memory<byte> buffer)
+        public async ReusableTask<int> ReadAsync (ITorrentManagerFile file, long offset, Memory<byte> buffer)
         {
             if (file is null)
                 throw new ArgumentNullException (nameof (file));
@@ -115,7 +118,7 @@ namespace MonoTorrent.PieceWriter
                 using var rented = await StreamCache.GetOrCreateStreamAsync (file, FileAccess.Read).ConfigureAwait (false);
 
                 await SwitchToThreadpool ();
-                if (rented.Stream.Length < offset + buffer.Length)
+                if (rented.Stream!.Length < offset + buffer.Length)
                     return 0;
 
                 if (rented.Stream.Position != offset)
@@ -124,7 +127,7 @@ namespace MonoTorrent.PieceWriter
             }
         }
 
-        public async ReusableTask WriteAsync (ITorrentFileInfo file, long offset, ReadOnlyMemory<byte> buffer)
+        public async ReusableTask WriteAsync (ITorrentManagerFile file, long offset, ReadOnlyMemory<byte> buffer)
         {
             if (file is null)
                 throw new ArgumentNullException (nameof (file));
@@ -141,7 +144,7 @@ namespace MonoTorrent.PieceWriter
                 //
                 // We also want the Seek operation to execute on the threadpool.
                 await SwitchToThreadpool ();
-                rented.Stream.Seek (offset, SeekOrigin.Begin);
+                rented.Stream!.Seek (offset, SeekOrigin.Begin);
                 rented.Stream.Write (buffer);
             }
         }

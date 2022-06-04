@@ -50,7 +50,7 @@ namespace MonoTorrent.Client
         bool Initialised { get; set; }
         TorrentManager Manager { get; }
         IPieceRequester Requester { get; set; }
-        MutableBitField PendingHashCheckPieces { get; set; }
+        BitField PendingHashCheckPieces { get; set; }
 
         /// <summary>
         /// Returns true when every block has been requested at least once.
@@ -60,8 +60,8 @@ namespace MonoTorrent.Client
         internal PieceManager (TorrentManager manager)
         {
             Manager = manager;
-            PendingHashCheckPieces = new MutableBitField (1);
-            Requester = manager.Engine.Factories.CreatePieceRequester ();
+            PendingHashCheckPieces = new BitField (1);
+            Requester = manager.Engine!.Factories.CreatePieceRequester ();
         }
 
         internal bool PieceDataReceived (PeerId id, PieceMessage message, out bool pieceComplete, out IList<IPeer> peersInvolved)
@@ -73,7 +73,7 @@ namespace MonoTorrent.Client
                 return true;
             } else {
                 pieceComplete = false;
-                peersInvolved = null;
+                peersInvolved = Array.Empty<IPeer> ();
                 return false;
             }
         }
@@ -115,10 +115,11 @@ namespace MonoTorrent.Client
         {
             if (Manager.HasMetadata) {
                 Initialised = true;
-                PendingHashCheckPieces = new MutableBitField (Manager.Bitfield.Length);
+                PendingHashCheckPieces = new BitField (Manager.Bitfield.Length);
 
                 var ignorableBitfieds = new[] {
                     Manager.Bitfield,
+                    Manager.PendingV2PieceHashes,
                     PendingHashCheckPieces,
                     Manager.UnhashedPieces,
                 };
@@ -144,7 +145,7 @@ namespace MonoTorrent.Client
         internal void CancelRequests (PeerId id)
         {
             if (Initialised)
-                Requester.CancelRequests (id, 0, Manager.PieceCount () - 1);
+                Requester.CancelRequests (id, 0, Manager.Torrent!.PieceCount () - 1);
         }
 
         internal void RequestRejected (PeerId id, BlockInfo pieceRequest)

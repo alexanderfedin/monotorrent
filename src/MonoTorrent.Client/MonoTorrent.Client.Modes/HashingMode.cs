@@ -27,6 +27,7 @@
 //
 
 
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -34,8 +35,7 @@ namespace MonoTorrent.Client.Modes
 {
     class HashingMode : Mode
     {
-
-        TaskCompletionSource<object> PausedCompletionSource { get; set; }
+        TaskCompletionSource<object?> PausedCompletionSource { get; set; }
 
         public override bool CanAcceptConnections => false;
         public override bool CanHandleMessages => false;
@@ -46,7 +46,7 @@ namespace MonoTorrent.Client.Modes
             : base (manager, diskManager, connectionManager, settings)
         {
             // Mark it as completed so we are *not* paused by default;
-            PausedCompletionSource = new TaskCompletionSource<object> ();
+            PausedCompletionSource = new TaskCompletionSource<object?> ();
             PausedCompletionSource.TrySetResult (null);
         }
 
@@ -56,7 +56,7 @@ namespace MonoTorrent.Client.Modes
                 return;
 
             PausedCompletionSource?.TrySetResult (null);
-            PausedCompletionSource = new TaskCompletionSource<object> ();
+            PausedCompletionSource = new TaskCompletionSource<object?> ();
             Cancellation.Token.Register (() => PausedCompletionSource.TrySetCanceled ());
             Manager.RaiseTorrentStateChanged (new TorrentStateChangedEventArgs (Manager, TorrentState.Hashing, State));
         }
@@ -80,11 +80,15 @@ namespace MonoTorrent.Client.Modes
             // Delete any existing fast resume data. We will need to recreate it after hashing completes.
             await Manager.MaybeDeleteFastResumeAsync ();
 
+            bool atLeastOneDoNotDownload = Manager.Files.Any (t => t.Priority == Priority.DoNotDownload);
             if (await DiskManager.CheckAnyFilesExistAsync (Manager)) {
                 int piecesHashed = 0;
                 Cancellation.Token.ThrowIfCancellationRequested ();
-                for (int index = 0; index < Manager.Torrent.Pieces.Count; index++) {
-                    if (!Manager.Files.Any (f => index >= f.StartPieceIndex && index <= f.EndPieceIndex && f.Priority != Priority.DoNotDownload)) {
+                // bep52: Properly support this
+                using var hashBuffer = MemoryPool.Default.Rent (Manager.InfoHashes.GetMaxByteCount (), out Memory<byte> hashMemory);
+                var hashes = new PieceHash (hashMemory);
+                for (int index = 0; index < Manager.Torrent!.PieceCount; index++) {
+                    if (atLeastOneDoNotDownload && !Manager.Files.Any (f => index >= f.StartPieceIndex && index <= f.EndPieceIndex && f.Priority != Priority.DoNotDownload)) {
                         // If a file is marked 'do not download' ensure we update the TorrentFiles
                         // so they also report that the piece is not available/downloaded.
                         Manager.OnPieceHashed (index, false, piecesHashed, Manager.PartialProgressSelector.TrueCount);
@@ -96,20 +100,20 @@ namespace MonoTorrent.Client.Modes
                     await PausedCompletionSource.Task;
                     Cancellation.Token.ThrowIfCancellationRequested ();
 
-                    byte[] hash = await DiskManager.GetHashAsync (Manager, index);
+                    var successful = await DiskManager.GetHashAsync (Manager, index, hashes);
 
                     if (Cancellation.Token.IsCancellationRequested) {
                         await DiskManager.CloseFilesAsync (Manager);
                         Cancellation.Token.ThrowIfCancellationRequested ();
                     }
 
-                    bool hashPassed = hash != null && Manager.Torrent.Pieces.IsValid (hash, index);
+                    bool hashPassed = successful && Manager.PieceHashes.IsValid (hashes, index);
                     Manager.OnPieceHashed (index, hashPassed, ++piecesHashed, Manager.PartialProgressSelector.TrueCount);
                 }
             } else {
                 await PausedCompletionSource.Task;
-                for (int i = 0; i < Manager.Torrent.Pieces.Count; i++)
-                    Manager.OnPieceHashed (i, false, i + 1, Manager.Torrent.Pieces.Count);
+                for (int i = 0; i < Manager.Torrent!.PieceCount; i++)
+                    Manager.OnPieceHashed (i, false, i + 1, Manager.Torrent.PieceCount);
             }
         }
 

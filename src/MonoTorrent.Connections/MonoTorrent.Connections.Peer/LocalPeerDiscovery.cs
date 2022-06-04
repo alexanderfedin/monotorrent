@@ -55,7 +55,7 @@ namespace MonoTorrent.Connections.Peer
         /// <summary>
         /// This asynchronous event is raised whenever a peer is discovered.
         /// </summary>
-        public event EventHandler<LocalPeerFoundEventArgs> PeerFound;
+        public event EventHandler<LocalPeerFoundEventArgs>? PeerFound;
 
         public TimeSpan AnnounceInternal => TimeSpan.FromMinutes (5);
         public TimeSpan MinimumAnnounceInternal => TimeSpan.FromMinutes (1);
@@ -81,11 +81,6 @@ namespace MonoTorrent.Connections.Peer
         bool ProcessingAnnounces { get; set; }
 
         Task RateLimiterTask { get; set; }
-
-        /// <summary>
-        /// The UdpClient joined to the multicast group, which is used to receive the broadcasts
-        /// </summary>
-        UdpClient UdpClient { get; set; }
 
         public LocalPeerDiscovery ()
             : base (new IPEndPoint (IPAddress.Any, MulticastAddressV4.Port))
@@ -128,8 +123,8 @@ namespace MonoTorrent.Connections.Peer
             var nics = NetworkInterface.GetAllNetworkInterfaces ();
 
             while (true) {
-                InfoHash infoHash = null;
-                IPEndPoint endPoint = null;
+                InfoHash? infoHash = null;
+                IPEndPoint? endPoint = null;
                 lock (PendingAnnounces) {
                     if (PendingAnnounces.Count == 0) {
                         // Enforce a minimum delay before the next announce to avoid killing CPU by iterating network interfaces.
@@ -162,9 +157,9 @@ namespace MonoTorrent.Connections.Peer
                     string[] receiveString = Encoding.ASCII.GetString (result.Buffer)
                         .Split (new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
 
-                    string portString = receiveString.FirstOrDefault (t => t.StartsWith ("Port: ", StringComparison.Ordinal));
-                    string hashString = receiveString.FirstOrDefault (t => t.StartsWith ("Infohash: ", StringComparison.Ordinal));
-                    string cookieString = receiveString.FirstOrDefault (t => t.StartsWith ("cookie", StringComparison.Ordinal));
+                    string? portString = receiveString.FirstOrDefault (t => t.StartsWith ("Port: ", StringComparison.Ordinal));
+                    string? hashString = receiveString.FirstOrDefault (t => t.StartsWith ("Infohash: ", StringComparison.Ordinal));
+                    string? cookieString = receiveString.FirstOrDefault (t => t.StartsWith ("cookie", StringComparison.Ordinal));
 
                     // An invalid response was received if these are missing.
                     if (portString == null || hashString == null)
@@ -195,8 +190,8 @@ namespace MonoTorrent.Connections.Peer
         {
             base.Start (token);
 
-            UdpClient = new UdpClient (OriginalEndPoint);
-            LocalEndPoint = (IPEndPoint) UdpClient.Client.LocalEndPoint;
+            var UdpClient = new UdpClient (OriginalEndPoint);
+            LocalEndPoint = (IPEndPoint?) UdpClient.Client.LocalEndPoint;
 
             token.Register (() => UdpClient.Dispose ());
 
@@ -209,7 +204,7 @@ namespace MonoTorrent.Connections.Peer
                 if ((!nic.Supports (NetworkInterfaceComponent.IPv4)) || (nic.OperationalStatus != OperationalStatus.Up))
                     continue;
 
-                IPAddress ip = null;
+                IPAddress? ip = null;
                 foreach (var uni in nic.GetIPProperties ().UnicastAddresses) {
                     if (uni.Address.AddressFamily != AddressFamily.InterNetwork)
                         continue;
@@ -217,7 +212,7 @@ namespace MonoTorrent.Connections.Peer
                     ip = uni.Address;
                 }
 
-                if (ip == null)
+                if (ip is null)
                     continue;
 
                 UdpClient.JoinMulticastGroup (MulticastAddressV4.Address, ip);

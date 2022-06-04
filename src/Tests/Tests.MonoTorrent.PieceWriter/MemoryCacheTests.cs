@@ -42,16 +42,16 @@ namespace MonoTorrent.PieceWriter
 {
     class MemoryWriter : IPieceWriter
     {
-        public List<ITorrentFileInfo> Closes = new List<ITorrentFileInfo> ();
-        public List<ITorrentFileInfo> Exists = new List<ITorrentFileInfo> ();
-        public List<ITorrentFileInfo> Flushes = new List<ITorrentFileInfo> ();
-        public List<(ITorrentFileInfo file, string fullPath, bool overwrite)> Moves = new List<(ITorrentFileInfo file, string fullPath, bool overwrite)> ();
-        public List<(ITorrentFileInfo file, long offset, byte[] buffer)> Reads = new List<(ITorrentFileInfo file, long offset, byte[] buffer)> ();
-        public List<(ITorrentFileInfo file, long offset, byte[] buffer)> Writes = new List<(ITorrentFileInfo file, long offset, byte[] buffer)> ();
+        public List<ITorrentManagerFile> Closes = new List<ITorrentManagerFile> ();
+        public List<ITorrentManagerFile> Exists = new List<ITorrentManagerFile> ();
+        public List<ITorrentManagerFile> Flushes = new List<ITorrentManagerFile> ();
+        public List<(ITorrentManagerFile file, string fullPath, bool overwrite)> Moves = new List<(ITorrentManagerFile file, string fullPath, bool overwrite)> ();
+        public List<(ITorrentManagerFile file, long offset, byte[] buffer)> Reads = new List<(ITorrentManagerFile file, long offset, byte[] buffer)> ();
+        public List<(ITorrentManagerFile file, long offset, byte[] buffer)> Writes = new List<(ITorrentManagerFile file, long offset, byte[] buffer)> ();
 
         public int MaximumOpenFiles { get; }
 
-        public ReusableTask CloseAsync (ITorrentFileInfo file)
+        public ReusableTask CloseAsync (ITorrentManagerFile file)
         {
             Closes.Add (file);
             return ReusableTask.CompletedTask;
@@ -61,25 +61,25 @@ namespace MonoTorrent.PieceWriter
         {
         }
 
-        public ReusableTask<bool> ExistsAsync (ITorrentFileInfo file)
+        public ReusableTask<bool> ExistsAsync (ITorrentManagerFile file)
         {
             Exists.Add (file);
             return ReusableTask.FromResult (false);
         }
 
-        public ReusableTask FlushAsync (ITorrentFileInfo file)
+        public ReusableTask FlushAsync (ITorrentManagerFile file)
         {
             Flushes.Add (file);
             return ReusableTask.CompletedTask;
         }
 
-        public ReusableTask MoveAsync (ITorrentFileInfo file, string fullPath, bool overwrite)
+        public ReusableTask MoveAsync (ITorrentManagerFile file, string fullPath, bool overwrite)
         {
             Moves.Add ((file, fullPath, overwrite));
             return ReusableTask.CompletedTask;
         }
 
-        public ReusableTask<int> ReadAsync (ITorrentFileInfo file, long offset, Memory<byte> buffer)
+        public ReusableTask<int> ReadAsync (ITorrentManagerFile file, long offset, Memory<byte> buffer)
         {
             foreach (var write in Writes) {
                 if (write.offset == offset && write.file == file && write.buffer.Length == buffer.Length) {
@@ -99,7 +99,7 @@ namespace MonoTorrent.PieceWriter
             return ReusableTask.CompletedTask;
         }
 
-        public virtual ReusableTask WriteAsync (ITorrentFileInfo file, long offset, ReadOnlyMemory<byte> buffer)
+        public virtual ReusableTask WriteAsync (ITorrentManagerFile file, long offset, ReadOnlyMemory<byte> buffer)
         {
             var actualData = new byte[buffer.Length];
             buffer.CopyTo (actualData.AsMemory ());
@@ -112,7 +112,7 @@ namespace MonoTorrent.PieceWriter
     {
         public new List<ReusableTaskCompletionSource<object>> Writes { get; } = new List<ReusableTaskCompletionSource<object>> ();
 
-        public override async ReusableTask WriteAsync (ITorrentFileInfo file, long offset, ReadOnlyMemory<byte> buffer)
+        public override async ReusableTask WriteAsync (ITorrentManagerFile file, long offset, ReadOnlyMemory<byte> buffer)
         {
             var tcs = new ReusableTaskCompletionSource<object> ();
             Writes.Add (tcs);
@@ -120,19 +120,10 @@ namespace MonoTorrent.PieceWriter
         }
     }
 
-    class TorrentData : ITorrentData
-    {
-        public IList<ITorrentFileInfo> Files { get; set; }
-        public InfoHash InfoHash => new InfoHash (new byte[20]);
-        public string Name => "Test Torrent";
-        public int PieceLength { get; set; }
-        public long Size { get; set; }
-    }
-
     public class MemoryCacheTests
     {
         MemoryCache cache;
-        ITorrentData torrent;
+        ITorrentManagerInfo torrent;
         MemoryWriter writer;
 
         [SetUp]
@@ -140,11 +131,7 @@ namespace MonoTorrent.PieceWriter
         {
             var pieceLength = Constants.BlockSize * 8;
             var files = TorrentFileInfo.Create (pieceLength, ("Relative/Path.txt", Constants.BlockSize * 5, "Full/Path/Relative/Path.txt"));
-            torrent = new TorrentData {
-                Files = files,
-                PieceLength = pieceLength,
-                Size = files.Single ().Length,
-            };
+            torrent = TestTorrentManagerInfo.Create (pieceLength: pieceLength, size: files.Single ().Length, files: files);
 
             writer = new MemoryWriter ();
             cache = new MemoryCache (new MemoryPool (), Constants.BlockSize * 4, writer);
@@ -247,11 +234,11 @@ namespace MonoTorrent.PieceWriter
             var data1 = new byte[] { 1, 1, 1 };
             var data2 = new byte[] { 2, 2, 2 };
 
-            var torrent2 = new TorrentData {
-                Files = torrent.Files,
-                PieceLength = torrent.PieceLength,
-                Size = torrent.Size
-            };
+            var torrent2 = TestTorrentManagerInfo.Create (
+                files: torrent.TorrentInfo.Files,
+                pieceLength: torrent.TorrentInfo.PieceLength,
+                size: torrent.TorrentInfo.Size
+            );
 
             var memory = new MemoryCache (new MemoryPool (), 1024, new NullWriter ());
             await memory.WriteAsync (torrent, new BlockInfo (0, 0, 3), data1, false);

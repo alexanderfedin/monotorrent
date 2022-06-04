@@ -38,44 +38,40 @@ namespace MonoTorrent.Messages.Peer
     {
         internal static readonly byte MessageId = 5;
 
-        public static readonly BitfieldMessage UnknownLength = new BitfieldMessage (null);
+        public static readonly BitfieldMessage UnknownLength = new BitfieldMessage (new ReadOnlyBitField (1));
 
-        #region Member Variables
         /// <summary>
         /// The bitfield
         /// </summary>
-        public BitField BitField { get; }
+        public ReadOnlyBitField BitField { get; }
+        BitField? MutableBitField { get; }
 
-        #endregion
+        bool CanDecode { get; }
 
-
-        #region Constructors
         /// <summary>
         /// Creates a new BitfieldMessage
         /// </summary>
         /// <param name="length">The length of the bitfield</param>
         public BitfieldMessage (int length)
         {
-            BitField = new MutableBitField (length);
+            BitField = MutableBitField = new BitField (length);
+            CanDecode = true;
         }
-
 
         /// <summary>
         /// Creates a new BitfieldMessage
         /// </summary>
         /// <param name="bitfield">The bitfield to use</param>
-        public BitfieldMessage (BitField bitfield)
+        public BitfieldMessage (ReadOnlyBitField bitfield)
         {
             BitField = bitfield;
+            CanDecode = false;
         }
-        #endregion
-
-
-        #region Methods
 
         public override void Decode (ReadOnlySpan<byte> buffer)
         {
-            ((MutableBitField) BitField)?.From (buffer);
+            if (CanDecode && !(MutableBitField is null))
+                MutableBitField.From (buffer);
         }
 
         public override int Encode (Span<byte> buffer)
@@ -95,8 +91,7 @@ namespace MonoTorrent.Messages.Peer
         /// <summary>
         /// Returns the length of the message in bytes
         /// </summary>
-        public override int ByteLength => (BitField.LengthInBytes + 5);
-        #endregion
+        public override int ByteLength => ((BitField == null ? 0 : BitField.LengthInBytes) + 5);
 
 
         #region Overridden Methods
@@ -109,18 +104,17 @@ namespace MonoTorrent.Messages.Peer
             return "BitfieldMessage";
         }
 
-        public override bool Equals (object obj)
+        public override bool Equals (object? obj)
         {
             if (!(obj is BitfieldMessage bf))
                 return false;
 
-            return BitField.Equals (bf.BitField);
+            return BitField == null ? bf.BitField == null : BitField.SequenceEqual (bf.BitField);
         }
 
         public override int GetHashCode ()
-        {
-            return BitField.GetHashCode ();
-        }
+            => BitField == null ? 0 : BitField.GetHashCode ();
+
         #endregion
     }
 }

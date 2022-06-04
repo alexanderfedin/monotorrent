@@ -46,7 +46,7 @@ namespace MonoTorrent.Connections.TrackerServer
     {
         static readonly Logger logger = Logger.Create (nameof (UdpTrackerListener));
 
-        public IPEndPoint LocalEndPoint { get; private set; }
+        public IPEndPoint? LocalEndPoint { get; private set; }
 
         IPEndPoint OriginalEndPoint { get; }
 
@@ -63,6 +63,7 @@ namespace MonoTorrent.Connections.TrackerServer
 
         public UdpTrackerListener (IPEndPoint endPoint)
         {
+            Cancellation = new CancellationTokenSource ();
             ConnectionIDs = new Dictionary<IPAddress, long> ();
             OriginalEndPoint = endPoint;
         }
@@ -82,7 +83,7 @@ namespace MonoTorrent.Connections.TrackerServer
                 listener.Dispose ();
             });
 
-            LocalEndPoint = (IPEndPoint) listener.Client.LocalEndPoint;
+            LocalEndPoint = (IPEndPoint?) listener.Client.LocalEndPoint;
 
             ReceiveAsync (listener, token);
             RaiseStatusChanged (ListenerStatus.Listening);
@@ -95,7 +96,7 @@ namespace MonoTorrent.Connections.TrackerServer
 
         async void ReceiveAsync (UdpClient client, CancellationToken token)
         {
-            Task sendTask = null;
+            Task? sendTask = null;
             while (!token.IsCancellationRequested) {
                 try {
                     UdpReceiveResult result = await client.ReceiveAsync ();
@@ -157,7 +158,7 @@ namespace MonoTorrent.Connections.TrackerServer
             UdpTrackerMessage m;
             BEncodedDictionary dict = Handle (getCollection (announceMessage), remotePeer.Address, false);
             if (dict.ContainsKey (TrackerRequest.FailureKey)) {
-                m = new ErrorMessage (announceMessage.TransactionId, dict[TrackerRequest.FailureKey].ToString ());
+                m = new ErrorMessage (announceMessage.TransactionId, dict[TrackerRequest.FailureKey].ToString ()!);
             } else {
                 TimeSpan interval = TimeSpan.Zero;
                 int leechers = 0;
@@ -174,7 +175,7 @@ namespace MonoTorrent.Connections.TrackerServer
                             break;
 
                         case ("interval"):
-                            interval = TimeSpan.FromSeconds (int.Parse (keypair.Value.ToString ()));
+                            interval = TimeSpan.FromSeconds (int.Parse (keypair.Value.ToString ()!));
                             break;
 
                         case ("peers"):
@@ -197,8 +198,8 @@ namespace MonoTorrent.Connections.TrackerServer
         NameValueCollection getCollection (AnnounceMessage announceMessage)
         {
             var res = new NameValueCollection {
-                { "info_hash", announceMessage.InfoHash.UrlEncode () },
-                { "peer_id", announceMessage.PeerId.UrlEncode () },
+                { "info_hash", announceMessage.InfoHash!.UrlEncode () },
+                { "peer_id", BEncodedString.FromMemory (announceMessage.PeerId).UrlEncode () },
                 { "port", announceMessage.Port.ToString () },
                 { "uploaded", announceMessage.Uploaded.ToString () },
                 { "downloaded", announceMessage.Downloaded.ToString () },
@@ -219,7 +220,7 @@ namespace MonoTorrent.Connections.TrackerServer
             UdpTrackerMessage m;
             byte[] data;
             if (val.ContainsKey (TrackerRequest.FailureKey)) {
-                m = new ErrorMessage (scrapeMessage.TransactionId, val[TrackerRequest.FailureKey].ToString ());
+                m = new ErrorMessage (scrapeMessage.TransactionId, val[TrackerRequest.FailureKey].ToString ()!);
             } else {
                 var scrapes = new List<ScrapeDetails> ();
 

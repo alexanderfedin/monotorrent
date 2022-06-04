@@ -27,6 +27,8 @@
 //
 
 
+using System;
+
 namespace MonoTorrent
 {
     public interface ITorrentFile
@@ -52,8 +54,18 @@ namespace MonoTorrent
         long Length { get; }
 
         /// <summary>
+        /// bep-0047 padding.
+        /// </summary>
+        long Padding { get; }
+
+        /// <summary>
         /// The offset, relative to the first byte in the torrent, where this file begins.
         /// </summary>
         long OffsetInTorrent { get; }
+
+        /// <summary>
+        /// The root of the merkle tree constructed for this file. Generated using a SHA256 hash by BEP52 compliant torrents.
+        /// </summary>
+        ReadOnlyMemory<byte> PiecesRoot { get; }
     }
 }

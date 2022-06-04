@@ -27,6 +27,7 @@
 //
 
 
+using System;
 using System.Collections.Generic;
 
 namespace MonoTorrent.PiecePicking
@@ -59,14 +60,14 @@ namespace MonoTorrent.PiecePicking
         public IList<ActivePieceRequest> ExportActiveRequests ()
             => Next.ExportActiveRequests ();
 
-        public virtual void Initialise (ITorrentData torrentData)
+        public virtual void Initialise (ITorrentManagerInfo torrentData)
             => Next.Initialise (torrentData);
 
-        public virtual bool IsInteresting (IPeer peer, BitField bitfield)
+        public virtual bool IsInteresting (IPeer peer, ReadOnlyBitField bitfield)
             => Next.IsInteresting (peer, bitfield);
 
-        public virtual IList<BlockInfo> PickPiece (IPeer peer, BitField available, IReadOnlyList<IPeer> otherPeers, int count, int startIndex, int endIndex)
-            => Next.PickPiece (peer, available, otherPeers, count, startIndex, endIndex);
+        public virtual int PickPiece (IPeer peer, ReadOnlyBitField available, IReadOnlyList<IPeer> otherPeers, int startIndex, int endIndex, Span<BlockInfo> requests)
+            => Next.PickPiece (peer, available, otherPeers, startIndex, endIndex, requests);
 
         public void RequestRejected (IPeer peer, BlockInfo request)
             => Next.RequestRejected (peer, request);

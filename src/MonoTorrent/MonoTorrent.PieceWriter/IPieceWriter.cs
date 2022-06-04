@@ -37,12 +37,89 @@ namespace MonoTorrent.PieceWriter
     {
         int MaximumOpenFiles { get; }
 
-        ReusableTask CloseAsync (ITorrentFileInfo file);
-        ReusableTask<bool> ExistsAsync (ITorrentFileInfo file);
-        ReusableTask FlushAsync (ITorrentFileInfo file);
-        ReusableTask MoveAsync (ITorrentFileInfo file, string fullPath, bool overwrite);
-        ReusableTask<int> ReadAsync (ITorrentFileInfo file, long offset, Memory<byte> buffer);
-        ReusableTask WriteAsync (ITorrentFileInfo file, long offset, ReadOnlyMemory<byte> buffer);
+        ReusableTask CloseAsync (ITorrentManagerFile file);
+        ReusableTask<bool> ExistsAsync (ITorrentManagerFile file);
+        ReusableTask FlushAsync (ITorrentManagerFile file);
+        ReusableTask MoveAsync (ITorrentManagerFile file, string fullPath, bool overwrite);
+        ReusableTask<int> ReadAsync (ITorrentManagerFile file, long offset, Memory<byte> buffer);
+        ReusableTask WriteAsync (ITorrentManagerFile file, long offset, ReadOnlyMemory<byte> buffer);
         ReusableTask SetMaximumOpenFilesAsync (int maximumOpenFiles);
+    }
+
+    public static class PaddingAwareIPieceWriterExtensions
+    {
+        private static (int todoFile, int todoPad) Partition (ITorrentManagerFile file, long offset, int todo)
+        {
+            int todoFile = (offset + todo) > file.Length ? (int) Math.Max (0, file.Length - offset) : todo;
+            int todoPad = (int) Math.Min (todo - todoFile, file.Padding);
+            return (todoFile, todoPad);
+        }
+
+        public static async ReusableTask<int> PaddingAwareReadAsync (this IPieceWriter writer, ITorrentManagerFile file, long offset, Memory<byte> buffer)
+        {
+            if (file is null)
+                throw new ArgumentNullException (nameof (file));
+
+            if (offset < 0 || offset + buffer.Length > (file.Length + file.Padding))
+                throw new ArgumentOutOfRangeException (nameof (offset));
+
+            (var todoFile, var todoPadding) = Partition (file, offset, buffer.Length);
+
+            int done = 0;
+
+            if (todoFile > 0) {
+                done = await writer.ReadAsync (file, offset, buffer.Slice (0, todoFile));
+                if (done < todoFile)
+                    return done;
+            }
+
+            if (todoPadding > 0) {
+                buffer.Slice (done, todoPadding).Span.Clear ();
+                done += todoPadding;
+            }
+
+            return done;
+        }
+
+        public static async ReusableTask<(int total, int padding)> PaddingAwareReadAsyncForCreator (this IPieceWriter writer, ITorrentManagerFile file, long offset, Memory<byte> buffer)
+        {
+            if (file is null)
+                throw new ArgumentNullException (nameof (file));
+
+            if (offset < 0 || offset + buffer.Length > (file.Length + file.Padding))
+                throw new ArgumentOutOfRangeException (nameof (offset));
+
+            (var todoFile, var todoPadding) = Partition (file, offset, buffer.Length);
+
+            int done = 0;
+
+            if (todoFile > 0) {
+                done = await writer.ReadAsync (file, offset, buffer.Slice (0, todoFile));
+                if (done < todoFile)
+                    return (done,0);
+            }
+
+            if (todoPadding > 0) {
+                buffer.Slice (done, todoPadding).Span.Clear ();
+                done += todoPadding;
+            }
+
+            return (done,todoPadding);
+        }
+
+        public static async ReusableTask PaddingAwareWriteAsync (this IPieceWriter writer, ITorrentManagerFile file, long offset, ReadOnlyMemory<byte> buffer)
+        {
+            if (file is null)
+                throw new ArgumentNullException (nameof (file));
+
+            if (offset < 0 || offset + buffer.Length > (file.Length + file.Padding))
+                throw new ArgumentOutOfRangeException (nameof (offset));
+
+            (var todoFile, var todoPadding) = Partition (file, offset, buffer.Length);
+
+            if (todoFile > 0) {
+                await writer.WriteAsync (file, offset, buffer.Slice (0, todoFile));
+            }
+        }
     }
 }

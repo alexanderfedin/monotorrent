@@ -43,10 +43,7 @@ namespace MonoTorrent.Messages.Peer
         /// </summary>
         public Memory<byte> Data { get; private set; }
 
-        public ByteBufferPool.Releaser DataReleaser { get; private set; }
-
-        public void SetData ((ByteBufferPool.Releaser releaser, Memory<byte> data) value)
-            => (DataReleaser, Data) = value;
+        ByteBufferPool.Releaser DataReleaser { get; set; }
 
         /// <summary>
         /// The index of the block from the piece which was requested.
@@ -78,11 +75,7 @@ namespace MonoTorrent.Messages.Peer
         }
 
         public PieceMessage (int pieceIndex, int startOffset, int blockLength)
-        {
-            PieceIndex = pieceIndex;
-            StartOffset = startOffset;
-            RequestLength = blockLength;
-        }
+            => Initialize (pieceIndex, startOffset, blockLength);
 
         public override void Decode (ReadOnlySpan<byte> buffer)
         {
@@ -90,6 +83,10 @@ namespace MonoTorrent.Messages.Peer
             StartOffset = ReadInt (ref buffer);
             RequestLength = buffer.Length;
 
+            if (RequestLength > 16384)
+                Console.WriteLine ("Huh...");
+            if (!Data.IsEmpty)
+                Console.Write ("ooooops?");
             // This buffer will be freed after the PieceWriter has finished with it
             DataReleaser = BufferPool.Rent (RequestLength, out Memory<byte> memory);
             buffer.CopyTo (memory.Span);
@@ -109,18 +106,36 @@ namespace MonoTorrent.Messages.Peer
             return origLength - buffer.Length;
         }
 
-        public override bool Equals (object obj)
-        {
-            return obj is PieceMessage message
+        public override bool Equals (object? obj)
+            => obj is PieceMessage message
                 && message.PieceIndex == PieceIndex
                 && message.StartOffset == StartOffset
                 && message.RequestLength == RequestLength;
-        }
 
         public override int GetHashCode ()
+            => RequestLength.GetHashCode () ^ PieceIndex.GetHashCode () ^ StartOffset.GetHashCode ();
+
+        public PieceMessage Initialize (int pieceIndex, int startOffset, int blockLength)
         {
-            return RequestLength.GetHashCode () ^ PieceIndex.GetHashCode () ^ StartOffset.GetHashCode ();
+            (PieceIndex, StartOffset, RequestLength) = (pieceIndex, startOffset, blockLength);
+            return this;
         }
+
+        protected override void Reset ()
+        {
+            PieceIndex = Int32.MinValue;
+            StartOffset = Int32.MinValue;
+            RequestLength = Int32.MinValue;
+            DataReleaser.Dispose ();
+            (DataReleaser, Data) = (default, default);
+        }
+
+        public void SetData ((ByteBufferPool.Releaser releaser, Memory<byte> data) value)
+        {
+            if (!Data.IsEmpty)
+                throw new Exception ("Der");
+            (DataReleaser, Data) = value;
+        } 
 
         public override string ToString ()
         {

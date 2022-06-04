@@ -28,6 +28,7 @@
 
 
 using System;
+using System.Buffers.Binary;
 using System.Net;
 
 using MonoTorrent.BEncoding;
@@ -41,12 +42,15 @@ namespace MonoTorrent.TrackerServer
         {
             ClientAddress = endPoint;
             DictionaryKey = dictionaryKey;
+            PeerId = BEncodedString.Empty;
         }
 
         internal Peer (AnnounceRequest par, object dictionaryKey)
         {
             DictionaryKey = dictionaryKey;
             Update (par);
+            if (ClientAddress is null || PeerId is null)
+                throw new NotSupportedException ();
         }
 
 
@@ -107,12 +111,12 @@ namespace MonoTorrent.TrackerServer
         /// </summary>
         public int UploadSpeed { get; set; }
 
-        public override bool Equals (object obj)
+        public override bool Equals (object? obj)
         {
             return Equals (obj as Peer);
         }
 
-        public bool Equals (Peer other)
+        public bool Equals (Peer? other)
         {
             if (other == null)
                 return false;
@@ -156,14 +160,17 @@ namespace MonoTorrent.TrackerServer
             };
             return dictionary;
         }
+
         byte[] GenerateCompactPeersEntry ()
         {
-            byte[] port = BitConverter.GetBytes (IPAddress.HostToNetworkOrder ((short) ClientAddress.Port));
-            byte[] addr = ClientAddress.Address.GetAddressBytes ();
-            byte[] entry = new byte[addr.Length + port.Length];
+            Span<byte> addressBytes = stackalloc byte[16];
+            if (!ClientAddress.Address.TryWriteBytes (addressBytes, out int written))
+                throw new NotSupportedException ($"IPAddress of type {ClientAddress.AddressFamily} are unsupported");
+            addressBytes = addressBytes.Slice (0, written);
 
-            Array.Copy (addr, entry, addr.Length);
-            Array.Copy (port, 0, entry, addr.Length, port.Length);
+            var entry = new byte[addressBytes.Length + 2];
+            addressBytes.CopyTo (entry);
+            BinaryPrimitives.WriteUInt16BigEndian (entry.AsSpan (written), (ushort) ClientAddress.Port);
             return entry;
         }
     }

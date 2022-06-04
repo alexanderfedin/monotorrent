@@ -29,12 +29,14 @@
 
 using System;
 
+using MonoTorrent.Dht;
+
 namespace MonoTorrent.Client
 {
     public sealed class TorrentSettings : IEquatable<TorrentSettings>
     {
         /// <summary>
-        /// If set to false then the <see cref="DhtEngine"/> registered with the <see cref="ClientEngine" /> will
+        /// If set to false then the <see cref="IDhtEngine"/> registered with the <see cref="ClientEngine" /> will
         /// never be used to locate additional peers. Defaults to true.
         /// </summary>
         public bool AllowDht { get; } = true;
@@ -63,14 +65,14 @@ namespace MonoTorrent.Client
         public int MaximumConnections { get; } = 60;
 
         /// <summary>
-        /// The maximum download speed, in bytes per second, for this torrent. A value of 0 means unlimited. Defaults to 0.
+        /// The maximum download rate, in bytes per second, for this torrent. A value of 0 means unlimited. Defaults to 0.
         /// </summary>
-        public int MaximumDownloadSpeed { get; }
+        public int MaximumDownloadRate { get; }
 
         /// <summary>
-        /// The maximum upload speed, in bytes per second, for this torrent. A value of 0 means unlimited. defaults to 0.
+        /// The maximum upload rate, in bytes per second, for this torrent. A value of 0 means unlimited. defaults to 0.
         /// </summary>
-        public int MaximumUploadSpeed { get; }
+        public int MaximumUploadRate { get; }
 
         /// <summary>
         /// The number of peers which can be uploaded to concurrently for this torrent. A value of 0 means unlimited. defaults to 8.
@@ -110,33 +112,33 @@ namespace MonoTorrent.Client
 
         }
 
-        internal TorrentSettings (bool allowDht, bool allowInitialSeeding, bool allowPeerExchange, int maximumConnections, int maximumDownloadSpeed, int maximumUploadSpeed, int uploadSlots, TimeSpan webSeedDelay, int webSeedSpeedTrigger, bool createContainingDirectory)
+        internal TorrentSettings (bool allowDht, bool allowInitialSeeding, bool allowPeerExchange, int maximumConnections, int maximumDownloadRate, int maximumUploadRate, int uploadSlots, TimeSpan webSeedDelay, int webSeedSpeedTrigger, bool createContainingDirectory)
         {
             AllowDht = allowDht;
             AllowInitialSeeding = allowInitialSeeding;
             AllowPeerExchange = allowPeerExchange;
             CreateContainingDirectory = createContainingDirectory;
             MaximumConnections = maximumConnections;
-            MaximumDownloadSpeed = maximumDownloadSpeed;
-            MaximumUploadSpeed = maximumUploadSpeed;
+            MaximumDownloadRate = maximumDownloadRate;
+            MaximumUploadRate = maximumUploadRate;
             UploadSlots = uploadSlots;
             WebSeedDelay = webSeedDelay;
             WebSeedSpeedTrigger = webSeedSpeedTrigger;
         }
 
-        public override bool Equals (object obj)
+        public override bool Equals (object? obj)
             => Equals (obj as TorrentSettings);
 
-        public bool Equals (TorrentSettings other)
+        public bool Equals (TorrentSettings? other)
         {
-            return other != null
+            return !(other is null)
                 && AllowDht == other.AllowDht
                 && AllowInitialSeeding == other.AllowInitialSeeding
                 && AllowPeerExchange == other.AllowPeerExchange
                 && CreateContainingDirectory == other.CreateContainingDirectory
                 && MaximumConnections == other.MaximumConnections
-                && MaximumDownloadSpeed == other.MaximumDownloadSpeed
-                && MaximumUploadSpeed == other.MaximumUploadSpeed
+                && MaximumDownloadRate == other.MaximumDownloadRate
+                && MaximumUploadRate == other.MaximumUploadRate
                 && UploadSlots == other.UploadSlots
                 && WebSeedDelay == other.WebSeedDelay
                 && WebSeedSpeedTrigger == other.WebSeedSpeedTrigger;
@@ -146,8 +148,8 @@ namespace MonoTorrent.Client
         {
             return AllowInitialSeeding.GetHashCode ()
                 ^ MaximumConnections
-                ^ MaximumDownloadSpeed
-                ^ MaximumUploadSpeed
+                ^ MaximumDownloadRate
+                ^ MaximumUploadRate
                 ^ UploadSlots;
         }
     }

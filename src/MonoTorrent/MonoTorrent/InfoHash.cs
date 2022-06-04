@@ -36,7 +36,7 @@ using System.Web;
 
 namespace MonoTorrent
 {
-    [DebuggerDisplay ("InfoHash: (hex) {System.BitConverter.ToString (Hash)}")]
+    [DebuggerDisplay ("InfoHash: (hex) {ToHex ()}")]
     public class InfoHash : IEquatable<InfoHash>
     {
         static readonly Dictionary<char, byte> Base32DecodeTable;
@@ -61,8 +61,8 @@ namespace MonoTorrent
         {
             if (infoHash is null)
                 throw new ArgumentNullException (nameof (infoHash));
-            if (infoHash.Length != 20)
-                throw new ArgumentException ("InfoHash must be exactly 20 bytes long", nameof (infoHash));
+            if (infoHash.Length != 20 && infoHash.Length != 32)
+                throw new ArgumentException ("InfoHash must be exactly 20 bytes long for SHA1 hashes, or 32 bytes long for SHA256 hashes", nameof (infoHash));
             Hash = (byte[]) infoHash.Clone ();
         }
 
@@ -78,8 +78,8 @@ namespace MonoTorrent
 
         InfoHash (ReadOnlyMemory<byte> infoHash)
         {
-            if (infoHash.Length != 20)
-                throw new ArgumentException ("InfoHash must be exactly 20 bytes long", nameof (infoHash));
+            if (infoHash.Length != 20 && infoHash.Length != 32)
+                throw new ArgumentException ("InfoHash must be exactly 20 bytes long for SHA1 hashes, or 32 bytes long for SHA256 hashes", nameof (infoHash));
             Hash = infoHash;
         }
 
@@ -89,11 +89,19 @@ namespace MonoTorrent
         public override int GetHashCode ()
             => MemoryMarshal.Read<int> (Hash.Span);
 
-        public override bool Equals (object obj)
+        public override bool Equals (object? obj)
             => Equals (obj as InfoHash);
 
-        public bool Equals (InfoHash other)
+        public bool Equals (InfoHash? other)
             => this == other;
+
+        /// <summary>
+        /// If this <see cref="InfoHash"/> object represents a SHA256 hash the return value will be the first
+        /// 20 bytes of the hash. If it represents a SHA1 hash the full (untruncated) value will be returned.
+        /// </summary>
+        /// <returns></returns>
+        public InfoHash Truncate ()
+            => Hash.Length == 20 ? this : new InfoHash (Hash.Slice (0, 20));
 
         public string ToHex ()
         {
@@ -111,7 +119,7 @@ namespace MonoTorrent
         public string UrlEncode ()
             => HttpUtility.UrlEncode (Hash.Span.ToArray ());
 
-        public static bool operator == (InfoHash left, InfoHash right)
+        public static bool operator == (InfoHash? left, InfoHash? right)
         {
             if (left is null)
                 return right is null;
@@ -121,7 +129,7 @@ namespace MonoTorrent
             return left.Hash.Span.SequenceEqual (right.Hash.Span);
         }
 
-        public static bool operator != (InfoHash left, InfoHash right)
+        public static bool operator != (InfoHash? left, InfoHash? right)
             => !(left == right);
 
         public static InfoHash FromBase32 (string infoHash)
@@ -157,14 +165,29 @@ namespace MonoTorrent
             if (infoHash is null)
                 throw new ArgumentNullException (nameof (infoHash));
 
-            if (infoHash.Length != 40)
-                throw new ArgumentException ("InfoHash must be 40 characters long", nameof (infoHash));
+            if (infoHash.Length != 40 && infoHash.Length != 64)
+                throw new ArgumentException ("V1 InfoHashes must be 40 characters long, V2 infohashes must be 64 characters long.", nameof (infoHash));
 
-            byte[] hash = new byte[20];
-            for (int i = 0; i < hash.Length; i++)
-                hash[i] = byte.Parse (infoHash.Substring (i * 2, 2), System.Globalization.NumberStyles.HexNumber);
+            byte[] hash = HexStringToByteArray (infoHash);
+            return InfoHash.FromMemory (hash);
+        }
 
-            return new InfoHash (hash);
+        public static InfoHash FromMultiHash (string multiHash)
+        {
+            if (multiHash is null)
+                throw new ArgumentNullException (nameof (multiHash));
+
+            // the following may be too strict for 'truncated' sha-256 hashes which are allowed ??
+            if (multiHash.Length != 68)
+                throw new ArgumentException ("V2 multihashes must be 68 characters long.", nameof (multiHash));
+
+            byte[] hash = HexStringToByteArray (multiHash);
+
+            // first two bytes are varints encoding hash type and length, but we'll only support sha-256 for now.
+            if (hash[0] != 0x12 || hash[1] != 0x20)
+                throw new ArgumentException ("Only sha-256 hashes are supported in V2 multihashes for now.");
+
+            return InfoHash.FromMemory (new ReadOnlyMemory<byte> (hash, 2, 32));
         }
 
         /// <summary>
@@ -179,6 +202,14 @@ namespace MonoTorrent
             if (infoHash is null)
                 throw new ArgumentNullException (nameof (infoHash));
             return new InfoHash (new ReadOnlyMemory<byte> (HttpUtility.UrlDecodeToBytes (infoHash)));
+        }
+
+        static byte[] HexStringToByteArray (string hexString)
+        {
+            var result = new byte[hexString.Length / 2];
+            for (int i = 0; i < result.Length; i++)
+                result[i] = byte.Parse (hexString.Substring (i * 2, 2), System.Globalization.NumberStyles.HexNumber);
+            return result;
         }
     }
 }

@@ -28,6 +28,7 @@
 
 
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -70,9 +71,36 @@ namespace System
             return true;
         }
 #endif
-        
 
-        public static void AppendData (this IncrementalHash incrementalHash, Memory<byte> buffer)
+#if NETSTANDARD2_0 || NET472
+        public static bool TryWriteBytes (this IPAddress address, Span<byte> dest, out int bytesWritten)
+        {
+            var bytes = address.GetAddressBytes ();
+            if (dest.Length < bytes.Length) {
+                bytesWritten = 0;
+                return false;
+            } else {
+                bytes.AsSpan ().CopyTo (dest);
+                bytesWritten = bytes.Length;
+                return true;
+            }
+        }
+
+        public static bool TryGetHashAndReset (this IncrementalHash incrementalHash, Span<byte> dest, out int bytesWritten)
+        {
+            var hash = incrementalHash.GetHashAndReset ();
+            if (dest.Length < hash.Length) {
+                bytesWritten = 0;
+                return false;
+            }
+
+            hash.CopyTo (dest);
+            bytesWritten = hash.Length;
+            return true;
+        }
+#endif
+
+        public static void AppendData (this IncrementalHash incrementalHash, ReadOnlyMemory<byte> buffer)
         {
 #if NETSTANDARD2_0 || NET472
             if (!MemoryMarshal.TryGetArray (buffer, out ArraySegment<byte> array))

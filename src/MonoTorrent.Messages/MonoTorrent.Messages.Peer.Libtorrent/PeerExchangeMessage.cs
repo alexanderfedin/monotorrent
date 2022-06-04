@@ -38,9 +38,11 @@ namespace MonoTorrent.Messages.Peer.Libtorrent
         public static readonly ExtensionSupport Support = CreateSupport ("ut_pex");
 
         BEncodedDictionary peerDict;
-        static readonly BEncodedString AddedKey = "added";
-        static readonly BEncodedString AddedDotFKey = "added.f";
-        static readonly BEncodedString DroppedKey = "dropped";
+        static readonly BEncodedString AddedKey = new BEncodedString ("added");
+        static readonly BEncodedString AddedDotFKey = new BEncodedString ("added.f");
+        static readonly BEncodedString DroppedKey = new BEncodedString ("dropped");
+
+        public override int ByteLength => 4 + 1 + 1 + peerDict.LengthInBytes ();
 
         public ReadOnlyMemory<byte> Added  => ((BEncodedString) peerDict[AddedKey]).AsMemory ();
 
@@ -54,32 +56,18 @@ namespace MonoTorrent.Messages.Peer.Libtorrent
             peerDict = new BEncodedDictionary ();
         }
 
-        public PeerExchangeMessage (byte messageId, byte[] added, byte[] addedDotF, byte[] dropped)
+        public PeerExchangeMessage (byte messageId, byte[]? added, byte[]? addedDotF, byte[]? dropped)
             : this ()
         {
             ExtensionId = messageId;
-            Initialise (added, addedDotF, dropped);
+            Initialize ((byte[]?)added?.Clone (), (byte[]?) addedDotF?.Clone (), (byte[]?) dropped?.Clone ());
         }
 
         public PeerExchangeMessage (ExtensionSupports supportedExtensions, byte[] added, byte[] addedDotF, byte[] dropped)
             : this ()
         {
-            ExtensionId = supportedExtensions.MessageId (Support);
-            Initialise (added, addedDotF, dropped);
+            Initialize (supportedExtensions, (byte[]) added.Clone (), (byte[]) addedDotF.Clone (), (byte[]) dropped.Clone ());
         }
-
-        void Initialise (byte[] added, byte[] addedDotF, byte[] dropped)
-        {
-            added = ((byte[]) added?.Clone ()) ?? Array.Empty<byte> ();
-            addedDotF = ((byte[]) addedDotF?.Clone ()) ?? Array.Empty<byte> ();
-            dropped = ((byte[]) dropped?.Clone ()) ?? Array.Empty<byte> ();
-
-            peerDict[AddedKey] = BEncodedString.FromMemory (added);
-            peerDict[AddedDotFKey] = BEncodedString.FromMemory (addedDotF);
-            peerDict[DroppedKey] = BEncodedString.FromMemory (dropped);
-        }
-
-        public override int ByteLength => 4 + 1 + 1 + peerDict.LengthInBytes ();
 
         public override void Decode (ReadOnlySpan<byte> buffer)
         {
@@ -102,6 +90,24 @@ namespace MonoTorrent.Messages.Peer.Libtorrent
             Write (ref buffer, peerDict);
 
             return written - buffer.Length;
+        }
+
+        public void Initialize (ExtensionSupports supportedExtensions, ReadOnlyMemory<byte> added, ReadOnlyMemory<byte> addedDotF, ReadOnlyMemory<byte> dropped)
+        {
+            ExtensionId = supportedExtensions.MessageId (Support);
+            Initialize (added, addedDotF, dropped);
+        }
+
+        void Initialize (ReadOnlyMemory<byte> added, ReadOnlyMemory<byte> addedDotF, ReadOnlyMemory<byte> dropped)
+        {
+            peerDict[AddedKey] = BEncodedString.FromMemory (added);
+            peerDict[AddedDotFKey] = BEncodedString.FromMemory (addedDotF);
+            peerDict[DroppedKey] = BEncodedString.FromMemory (dropped);
+        }
+
+        protected override void Reset ()
+        {
+            ExtensionId = 0;
         }
 
         public override string ToString ()

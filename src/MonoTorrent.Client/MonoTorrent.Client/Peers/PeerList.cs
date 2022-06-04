@@ -74,7 +74,7 @@ namespace MonoTorrent.Client
             scanIndex = 0;
         }
 
-        public PeerId GetNextPeer ()
+        public PeerId? GetNextPeer ()
         {
             if (scanIndex < peers.Count) {
                 scanIndex++;
@@ -83,7 +83,7 @@ namespace MonoTorrent.Client
                 return null;
         }
 
-        public PeerId GetFirstInterestedChokedPeer ()
+        public PeerId? GetFirstInterestedChokedPeer ()
         {
             //Look for a choked peer
             foreach (PeerId peer in peers)
@@ -93,10 +93,10 @@ namespace MonoTorrent.Client
             return null;
         }
 
-        public PeerId GetOUPeer ()
+        public PeerId? GetOUPeer ()
         {
             //Look for an untried peer that we haven't unchoked, or else return the choked peer with the longest unchoke interval
-            PeerId longestIntervalPeer = null;
+            PeerId? longestIntervalPeer = null;
             double longestIntervalPeerTime = 0;
             foreach (PeerId peer in peers)
                 if (peer.IsInterested && peer.AmChoking) {
@@ -112,7 +112,7 @@ namespace MonoTorrent.Client
                             // Compare dates to determine whether the new one has a longer interval (but halve the interval
                             // if the peer has never sent us any data)
                             double newInterval = peer.LastUnchoked.Elapsed.TotalSeconds;
-                            if (peer.Monitor.DataBytesDownloaded == 0)
+                            if (peer.Monitor.DataBytesReceived == 0)
                                 newInterval /= 2;
                             if (newInterval > longestIntervalPeerTime) {
                                 //The new peer has a longer interval than the current one, replace it
@@ -193,9 +193,9 @@ namespace MonoTorrent.Client
             //Comparer for optimistic unchoke candidates
 
             //Start by sorting peers that have given us most data before to the top
-            if (P1.Monitor.DataBytesDownloaded > P2.Monitor.DataBytesDownloaded)
+            if (P1.Monitor.DataBytesReceived > P2.Monitor.DataBytesReceived)
                 return -1;
-            else if (P1.Monitor.DataBytesDownloaded < P2.Monitor.DataBytesDownloaded)
+            else if (P1.Monitor.DataBytesReceived < P2.Monitor.DataBytesReceived)
                 return 1;
 
             //Amount of data sent is equal (and probably 0), sort untried before tried
@@ -222,9 +222,9 @@ namespace MonoTorrent.Client
             //Comparer for optimistic unchoke candidates
 
             //Start by sorting peers that we have sent most data to before to the top
-            if (P1.Monitor.DataBytesUploaded > P2.Monitor.DataBytesUploaded)
+            if (P1.Monitor.DataBytesSent > P2.Monitor.DataBytesSent)
                 return -1;
-            else if (P1.Monitor.DataBytesUploaded < P2.Monitor.DataBytesUploaded)
+            else if (P1.Monitor.DataBytesSent < P2.Monitor.DataBytesSent)
                 return 1;
 
             //Amount of data sent is equal (and probably 0), sort untried before tried

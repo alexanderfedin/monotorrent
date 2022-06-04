@@ -32,7 +32,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Net;
 using System.Net.Http;
-using System.Security.Cryptography;
 
 using MonoTorrent.Connections;
 using MonoTorrent.Connections.Dht;
@@ -55,15 +54,12 @@ namespace MonoTorrent
         public delegate ILocalPeerDiscovery LocalPeerDiscoveryCreator ();
         public delegate IPeerConnection PeerConnectionCreator (Uri uri);
         public delegate IPeerConnectionListener PeerConnectionListenerCreator (IPEndPoint endPoint);
-        public delegate IPieceRequester PieceRequesterCreator ();
+        public delegate IPieceRequester PieceRequesterCreator (PieceRequesterSettings settings);
         public delegate IPieceWriter PieceWriterCreator (int maxOpenFiles);
         public delegate IPortForwarder PortForwarderCreator ();
         public delegate ISocketConnector SocketConnectorCreator ();
         public delegate IStreamingPieceRequester StreamingPieceRequesterCreator ();
         public delegate ITracker TrackerCreator (Uri uri);
-
-        public delegate MD5 MD5Creator ();
-        public delegate SHA1 SHA1Creator ();
     }
 
     public partial class Factories
@@ -85,16 +81,10 @@ namespace MonoTorrent
 
         ReadOnlyDictionary<string, TrackerCreator> TrackerFuncs { get; set; }
 
-        MD5Creator MD5Func { get; set; }
-        SHA1Creator SHA1Func { get; set; }
-
         public Factories ()
         {
-            MD5Func = () => MD5.Create ();
-            SHA1Func = () => SHA1.Create ();
-
             BlockCacheFunc = (writer, capacity, buffer) => new MemoryCache (buffer, capacity, writer);
-            DhtFunc = () => new DhtEngine (SHA1Func ());
+            DhtFunc = () => new DhtEngine ();
             DhtListenerFunc = endpoint => new DhtListener (endpoint);
             HttpClientFunc = () => {
                 var client = new HttpClient ();
@@ -110,7 +100,7 @@ namespace MonoTorrent
                 }
             );
             PeerConnectionListenerFunc = endPoint => new PeerConnectionListener (endPoint);
-            PieceRequesterFunc = () => new StandardPieceRequester ();
+            PieceRequesterFunc = settings => new StandardPieceRequester (settings);
             PieceWriterFunc = maxOpenFiles => new DiskWriter (maxOpenFiles);
             PortForwarderFunc = () => new MonoNatPortForwarder ();
             SocketConnectorFunc = () => new SocketConnector ();
@@ -168,16 +158,7 @@ namespace MonoTorrent
             return dupe;
         }
 
-        public MD5 CreateMD5 ()
-            => MD5Func ();
-        public Factories WithMD5Creator (MD5Creator creator)
-        {
-            var dupe = MemberwiseClone ();
-            dupe.MD5Func = creator ?? Default.MD5Func;
-            return dupe;
-        }
-
-        public IPeerConnection CreatePeerConnection (Uri uri)
+        public IPeerConnection? CreatePeerConnection (Uri uri)
         {
             try {
                 if (PeerConnectionFuncs.TryGetValue (uri.Scheme, out var creator))
@@ -213,7 +194,9 @@ namespace MonoTorrent
         }
 
         public IPieceRequester CreatePieceRequester ()
-            => PieceRequesterFunc ();
+            => CreatePieceRequester (PieceRequesterSettings.Default);
+        public IPieceRequester CreatePieceRequester (PieceRequesterSettings settings)
+            => PieceRequesterFunc (settings);
         public Factories WithPieceRequesterCreator (PieceRequesterCreator creator)
         {
             var dupe = MemberwiseClone ();
@@ -239,15 +222,6 @@ namespace MonoTorrent
             return dupe;
         }
 
-        public SHA1 CreateSHA1 ()
-            => SHA1Func ();
-        public Factories WithSHA1Creator (SHA1Creator creator)
-        {
-            var dupe = MemberwiseClone ();
-            dupe.SHA1Func = creator ?? Default.SHA1Func;
-            return dupe;
-        }
-
         public ISocketConnector CreateSocketConnector ()
             => SocketConnectorFunc ();
         public Factories WithSocketConnectorCreator (SocketConnectorCreator creator)
@@ -266,7 +240,7 @@ namespace MonoTorrent
             return dupe;
         }
 
-        public ITracker CreateTracker (Uri uri)
+        public ITracker? CreateTracker (Uri uri)
         {
             try {
                 if (TrackerFuncs.TryGetValue (uri.Scheme, out var creator))

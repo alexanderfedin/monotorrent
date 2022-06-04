@@ -40,26 +40,27 @@ namespace MonoTorrent.PiecePicking
     [TestFixture]
     public class StreamingPieceRequesterTests
     {
-        class TorrentData : ITorrentData
+        ITorrentManagerInfo CreateTorrentInfo ()
         {
-            public IList<ITorrentFileInfo> Files { get; } = TorrentFileInfo.Create (Constants.BlockSize * 8, 1024 * 1024 * 8);
-            public InfoHash InfoHash => new InfoHash (new byte[20]);
-            public string Name => "Test Torrent";
-            public int PieceLength => Constants.BlockSize * 8;
-            public long Size => Files[0].Length;
+            var files = TorrentFileInfo.Create (Constants.BlockSize * 8, 1024 * 1024 * 8);
+            return TestTorrentManagerInfo.Create (
+                size: files.Single ().Length,
+                pieceLength: Constants.BlockSize * 8,
+                files: files
+            );
         }
 
         [Test]
         public void PickFromBeforeHighPrioritySet ()
         {
-            var data = new TorrentData ();
-            var ignoringBitfield = new MutableBitField (data.PieceCount ())
+            var data = CreateTorrentInfo ();
+            ReadOnlyBitField ignoringBitfield = new BitField (data.TorrentInfo.PieceCount ())
                 .SetAll (true)
                 .Set (0, false);
 
             var requester = new StreamingPieceRequester ();
             requester.Initialise (data, new[] { ignoringBitfield });
-            requester.SeekToPosition (data.Files[0], data.PieceLength * 3);
+            requester.SeekToPosition (data.Files[0], data.TorrentInfo.PieceLength * 3);
 
             var peer = PeerId.CreateNull (ignoringBitfield.Length, true, false, true);
             requester.AddRequests (peer, Array.Empty<IPeerWithMessaging> ());
@@ -73,13 +74,13 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void PickHighestPriority ()
         {
-            var data = new TorrentData ();
-            var ignoringBitfield = new MutableBitField (data.PieceCount ())
+            var data = CreateTorrentInfo ();
+            ReadOnlyBitField ignoringBitfield = new BitField (data.TorrentInfo.PieceCount ())
                 .SetAll (false);
 
             var requester = new StreamingPieceRequester ();
             requester.Initialise (data, new[] { ignoringBitfield });
-            requester.SeekToPosition (data.Files[0], data.PieceLength * 3);
+            requester.SeekToPosition (data.Files[0], data.TorrentInfo.PieceLength * 3);
 
             var peer = PeerId.CreateNull (ignoringBitfield.Length, true, false, true);
             requester.AddRequests (peer, Array.Empty<IPeerWithMessaging> ());

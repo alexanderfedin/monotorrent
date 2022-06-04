@@ -36,7 +36,7 @@ namespace MonoTorrent.Client
 {
     internal struct EnsureThreadPool : INotifyCompletion
     {
-        static readonly WaitCallback Callback = (state) => ((Action)state).Invoke();
+        static readonly WaitCallback Callback = (state) => ((Action) state!).Invoke ();
 
         [EditorBrowsable(EditorBrowsableState.Never)]
         public EnsureThreadPool GetAwaiter()
@@ -56,7 +56,11 @@ namespace MonoTorrent.Client
         [EditorBrowsable(EditorBrowsableState.Never)]
         public void OnCompleted(Action continuation)
         {
+#if NET5_0_OR_GREATER || NETCOREAPP3_0_OR_GREATER
+            ThreadPool.UnsafeQueueUserWorkItem (ThreadSwitcher.ThreadSwitcherWorkItem.GetOrCreate (continuation), false);
+#else
             ThreadPool.UnsafeQueueUserWorkItem(Callback, continuation);
+#endif
         }
     }
 }

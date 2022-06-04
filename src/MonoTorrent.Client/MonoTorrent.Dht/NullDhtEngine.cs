@@ -32,9 +32,18 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 
 using MonoTorrent.Connections.Dht;
+using MonoTorrent.Dht;
 
-namespace MonoTorrent.Dht
+namespace MonoTorrent.Client
 {
+    class NullTransferMonitor : ITransferMonitor
+    {
+        public long BytesSent { get; }
+        public long BytesReceived { get; }
+        public long DownloadRate { get; }
+        public long UploadRate { get; }
+    }
+
     class NullDhtEngine : IDhtEngine
     {
 #pragma warning disable 0067
@@ -52,15 +61,17 @@ namespace MonoTorrent.Dht
         public TimeSpan AnnounceInterval { get; }
         public bool Disposed => false;
         public TimeSpan MinimumAnnounceInterval { get; }
+        public int NodeCount => 0;
+        public ITransferMonitor Monitor { get; } = new NullTransferMonitor ();
 
         public DhtState State => DhtState.NotReady;
 
-        public void Add (IEnumerable<byte[]> nodes)
+        public void Add (IEnumerable<ReadOnlyMemory<byte>> nodes)
         {
 
         }
 
-        public void Announce (InfoHash infohash, int port)
+        public void Announce (InfoHash infoHash, int port)
         {
 
         }
@@ -70,14 +81,14 @@ namespace MonoTorrent.Dht
 
         }
 
-        public void GetPeers (InfoHash infohash)
+        public void GetPeers (InfoHash infoHash)
         {
 
         }
 
-        public Task<byte[]> SaveNodesAsync ()
+        public Task<ReadOnlyMemory<byte>> SaveNodesAsync ()
         {
-            return Task.FromResult (new byte[0]);
+            return Task.FromResult (ReadOnlyMemory<byte>.Empty);
         }
 
         public Task SetListenerAsync (IDhtListener listener)
@@ -90,7 +101,7 @@ namespace MonoTorrent.Dht
             return Task.CompletedTask;
         }
 
-        public Task StartAsync (byte[] initialNodes)
+        public Task StartAsync (ReadOnlyMemory<byte> initialNodes)
         {
             return Task.CompletedTask;
         }

@@ -99,7 +99,9 @@ namespace MonoTorrent.Client.Modes
             else
                 await Manager.MaybeDeleteFastResumeAsync ();
 
-            if (Manager.Complete && Manager.Settings.AllowInitialSeeding && ClientEngine.SupportsInitialSeed) {
+            if (Manager.PendingV2PieceHashes.TrueCount > 0) {
+                Manager.Mode = new PieceHashesMode (Manager, DiskManager, ConnectionManager, Settings);
+            } else if (Manager.Complete && Manager.Settings.AllowInitialSeeding && ClientEngine.SupportsInitialSeed) {
                 Manager.Mode = new InitialSeedingMode (Manager, DiskManager, ConnectionManager, Settings);
             } else {
                 Manager.Mode = new DownloadMode (Manager, DiskManager, ConnectionManager, Settings);
@@ -133,7 +135,7 @@ namespace MonoTorrent.Client.Modes
             // FIXME: I should really just ensure that zero length files always exist on disk. If the first file is
             // a zero length file and someone deletes it after the first piece has been written to disk, it will
             // never be recreated. If the downloaded data requires this file to exist, we have an issue.
-            foreach (ITorrentFileInfo file in Manager.Files) {
+            foreach (ITorrentManagerFile file in Manager.Files) {
                 if (!file.BitField.AllFalse && file.Length > 0) {
                     if (!await DiskManager.CheckFileExistsAsync (file)) {
                         Manager.SetNeedsHashCheck ();

@@ -39,7 +39,7 @@ namespace MonoTorrent.Connections.Peer
     /// </summary>
     public sealed class PeerConnectionListener : SocketListener, IPeerConnectionListener
     {
-        public event EventHandler<PeerConnectionEventArgs> ConnectionReceived;
+        public event EventHandler<PeerConnectionEventArgs>? ConnectionReceived;
 
         public PeerConnectionListener (IPEndPoint endpoint)
             : base (endpoint)
@@ -58,7 +58,7 @@ namespace MonoTorrent.Connections.Peer
             });
 
             listener.Bind (OriginalEndPoint);
-            LocalEndPoint = (IPEndPoint) listener.LocalEndPoint;
+            LocalEndPoint = (IPEndPoint?) listener.LocalEndPoint;
 
             listener.Listen (6);
 
@@ -68,26 +68,26 @@ namespace MonoTorrent.Connections.Peer
                 OnSocketReceived (listener, connectArgs);
         }
 
-        void OnSocketReceived (object sender, SocketAsyncEventArgs e)
+        void OnSocketReceived (object? sender, SocketAsyncEventArgs e)
         {
-            Socket socket = null;
+            Socket? socket = null;
             try {
+                socket = e.AcceptSocket;
                 // Capture the socket (if any) and prepare the args for reuse
                 // by ensuring AcceptSocket is null.
-                socket = e.AcceptSocket;
                 e.AcceptSocket = null;
 
                 if (e.SocketError != SocketError.Success)
                     throw new SocketException ((int) e.SocketError);
 
-                var connection = new SocketPeerConnection (socket, true);
+                var connection = new SocketPeerConnection (socket!, true);
                 ConnectionReceived?.Invoke (this, new PeerConnectionEventArgs (connection, null));
             } catch {
                 socket?.Close ();
             }
 
             try {
-                if (!((Socket) sender).AcceptAsync (e))
+                if (!((Socket) sender!).AcceptAsync (e))
                     OnSocketReceived (sender, e);
             } catch {
                 return;

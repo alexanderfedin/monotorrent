@@ -67,7 +67,7 @@ namespace MonoTorrent.PieceWriter
             public CachedBlock SetFlushing ()
                 => new CachedBlock (Block, BufferReleaser, Buffer, true);
 
-            public override bool Equals (object obj)
+            public override bool Equals (object? obj)
                 => obj is CachedBlock block && Equals (block);
 
             public bool Equals (CachedBlock other)
@@ -77,11 +77,11 @@ namespace MonoTorrent.PieceWriter
                 => Block.GetHashCode ();
         }
 
-        public event EventHandler<BlockInfo> ReadFromCache;
-        public event EventHandler<BlockInfo> ReadThroughCache;
+        public event EventHandler<BlockInfo>? ReadFromCache;
+        public event EventHandler<BlockInfo>? ReadThroughCache;
 
-        public event EventHandler<BlockInfo> WrittenToCache;
-        public event EventHandler<BlockInfo> WrittenThroughCache;
+        public event EventHandler<BlockInfo>? WrittenToCache;
+        public event EventHandler<BlockInfo>? WrittenThroughCache;
 
         long cacheHits;
         long cacheMisses;
@@ -107,7 +107,7 @@ namespace MonoTorrent.PieceWriter
         /// <summary>
         /// The blocks which have been cached in memory
         /// </summary>
-        Dictionary<ITorrentData, List<CachedBlock>> CachedBlocks { get; }
+        Dictionary<ITorrentManagerInfo, List<CachedBlock>> CachedBlocks { get; }
 
         /// <summary>
         /// The size of the in memory cache, in bytes.
@@ -125,10 +125,10 @@ namespace MonoTorrent.PieceWriter
             Capacity = capacity;
             Writer = writer ?? throw new ArgumentNullException (nameof (writer));
 
-            CachedBlocks = new Dictionary<ITorrentData, List<CachedBlock>> ();
+            CachedBlocks = new Dictionary<ITorrentManagerInfo, List<CachedBlock>> ();
         }
 
-        public async ReusableTask<bool> ReadAsync (ITorrentData torrent, BlockInfo block, Memory<byte> buffer)
+        public async ReusableTask<bool> ReadAsync (ITorrentManagerInfo torrent, BlockInfo block, Memory<byte> buffer)
         {
             if (await ReadFromCacheAsync (torrent, block, buffer))
                 return true;
@@ -137,12 +137,12 @@ namespace MonoTorrent.PieceWriter
             return await ReadFromFilesAsync (torrent, block, buffer).ConfigureAwait (false) == block.RequestLength;
         }
 
-        public ReusableTask<bool> ReadFromCacheAsync (ITorrentData torrent, BlockInfo block, Memory<byte> buffer)
+        public ReusableTask<bool> ReadFromCacheAsync (ITorrentManagerInfo torrent, BlockInfo block, Memory<byte> buffer)
         {
             if (torrent == null)
                 throw new ArgumentNullException (nameof (torrent));
 
-            if (CachedBlocks.TryGetValue (torrent, out List<CachedBlock> blocks)) {
+            if (CachedBlocks.TryGetValue (torrent, out List<CachedBlock>? blocks)) {
                 for (int i = 0; i < blocks.Count; i++) {
                     var cached = blocks[i];
                     if (cached.Block != block)
@@ -162,7 +162,7 @@ namespace MonoTorrent.PieceWriter
             return ReusableTask.FromResult (false);
         }
 
-        async void FlushBlockAsync (ITorrentData torrent, List<CachedBlock> blocks, CachedBlock cached)
+        async void FlushBlockAsync (ITorrentManagerInfo torrent, List<CachedBlock> blocks, CachedBlock cached)
         {
             // FIXME: How do we handle failures from this?
             using (cached.BufferReleaser) {
@@ -184,12 +184,12 @@ namespace MonoTorrent.PieceWriter
             return ReusableTask.CompletedTask;
         }
 
-        public async ReusableTask WriteAsync (ITorrentData torrent, BlockInfo block, Memory<byte> buffer, bool preferSkipCache)
+        public async ReusableTask WriteAsync (ITorrentManagerInfo torrent, BlockInfo block, Memory<byte> buffer, bool preferSkipCache)
         {
             if (preferSkipCache || Capacity < block.RequestLength) {
                 await WriteToFilesAsync (torrent, block, buffer);
             } else {
-                if (!CachedBlocks.TryGetValue (torrent, out List<CachedBlock> blocks))
+                if (!CachedBlocks.TryGetValue (torrent, out List<CachedBlock>? blocks))
                     CachedBlocks[torrent] = blocks = new List<CachedBlock> ();
 
                 if (CacheUsed > (Capacity - block.RequestLength)) {
@@ -234,13 +234,13 @@ namespace MonoTorrent.PieceWriter
             return -1;
         }
 
-        ReusableTask<int> ReadFromFilesAsync (ITorrentData torrent, BlockInfo block, Memory<byte> buffer)
+        ReusableTask<int> ReadFromFilesAsync (ITorrentManagerInfo torrent, BlockInfo block, Memory<byte> buffer)
         {
             ReadThroughCache?.Invoke (this, block);
             return Writer.ReadFromFilesAsync (torrent, block, buffer);
         }
 
-        ReusableTask WriteToFilesAsync (ITorrentData torrent, BlockInfo block, Memory<byte> buffer)
+        ReusableTask WriteToFilesAsync (ITorrentManagerInfo torrent, BlockInfo block, Memory<byte> buffer)
         {
             WrittenThroughCache?.Invoke (this, block);
             return Writer.WriteToFilesAsync (torrent, block, buffer);

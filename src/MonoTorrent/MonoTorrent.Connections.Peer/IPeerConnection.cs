@@ -36,7 +36,7 @@ namespace MonoTorrent.Connections.Peer
 {
     public interface IPeerConnection : IDisposable
     {
-        byte[] AddressBytes { get; }
+        byte[]? AddressBytes { get; }
 
         bool CanReconnect { get; }
 
@@ -44,13 +44,11 @@ namespace MonoTorrent.Connections.Peer
 
         bool IsIncoming { get; }
 
-        EndPoint EndPoint { get; }
-
         ReusableTask ConnectAsync ();
 
-        ReusableTask<int> ReceiveAsync (SocketMemory buffer);
+        ReusableTask<int> ReceiveAsync (Memory<byte> buffer);
 
-        ReusableTask<int> SendAsync (SocketMemory buffer);
+        ReusableTask<int> SendAsync (Memory<byte> buffer);
 
         Uri Uri { get; }
     }

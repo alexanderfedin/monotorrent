@@ -58,18 +58,18 @@ namespace MonoTorrent.Client
             SKeys = Array.Empty<InfoHash> ();
         }
 
-        public void Add (InfoHash skey)
+        public void Add (InfoHashes skey)
         {
             var clone = new InfoHash[SKeys.Length + 1];
             Array.Copy (SKeys, clone, SKeys.Length);
-            clone[clone.Length - 1] = skey;
+            clone[clone.Length - 1] = skey.V1OrV2.Truncate ();
             SKeys = clone;
         }
 
-        public void Remove (InfoHash skey)
+        public void Remove (InfoHashes skey)
         {
             var clone = new InfoHash[SKeys.Length - 1];
-            var index = Array.IndexOf (SKeys, skey);
+            var index = Array.IndexOf (SKeys, skey.V1OrV2.Truncate ());
             Array.Copy (SKeys, clone, index);
             Array.Copy (SKeys, index + 1, clone, index, clone.Length - index);
             SKeys = clone;
@@ -82,7 +82,7 @@ namespace MonoTorrent.Client
             Listener.ConnectionReceived += ConnectionReceived;
         }
 
-        async void ConnectionReceived (object sender, PeerConnectionEventArgs e)
+        async void ConnectionReceived (object? sender, PeerConnectionEventArgs e)
         {
             await ClientEngine.MainLoop;
             var peer = new Peer ("", e.Connection.Uri, EncryptionTypes.All);
@@ -93,8 +93,8 @@ namespace MonoTorrent.Client
                     return;
                 }
                 if (!e.Connection.IsIncoming) {
-                    var manager = Engine.Torrents.FirstOrDefault (t => t.InfoHash == e.InfoHash);
-                    var id = new PeerId (peer, e.Connection, new MutableBitField (manager.Bitfield.Length).SetAll (false));
+                    var manager = Engine.Torrents.FirstOrDefault (t => t.InfoHashes.Contains (e.InfoHash!))!;
+                    var id = new PeerId (peer, e.Connection, new BitField (manager.Bitfield.Length).SetAll (false));
                     id.LastMessageSent.Restart ();
                     id.LastMessageReceived.Restart ();
 
@@ -106,7 +106,7 @@ namespace MonoTorrent.Client
 
                 var supportedEncryptions = EncryptionTypes.GetSupportedEncryption (peer.AllowedEncryption, Engine.Settings.AllowedEncryption);
                 EncryptorFactory.EncryptorResult result = await EncryptorFactory.CheckIncomingConnectionAsync (e.Connection, supportedEncryptions, SKeys, Engine.Factories);
-                if (!await HandleHandshake (peer, e.Connection, result.Handshake, result.Decryptor, result.Encryptor))
+                if (!await HandleHandshake (peer, e.Connection, result.Handshake!, result.Decryptor, result.Encryptor))
                     e.Connection.Dispose ();
             } catch {
                 e.Connection.Dispose ();
@@ -115,7 +115,7 @@ namespace MonoTorrent.Client
 
         async ReusableTask<bool> HandleHandshake (Peer peer, IPeerConnection connection, HandshakeMessage message, IEncryption decryptor, IEncryption encryptor)
         {
-            TorrentManager man = null;
+            TorrentManager? man = null;
             if (message.ProtocolString != Constants.ProtocolStringV100)
                 return false;
 
@@ -124,7 +124,7 @@ namespace MonoTorrent.Client
                 return false;
 
             for (int i = 0; i < Engine.Torrents.Count; i++)
-                if (message.InfoHash == Engine.Torrents[i].InfoHash)
+                if (Engine.Torrents[i].InfoHashes.Contains (message.InfoHash))
                     man = Engine.Torrents[i];
 
             // We're not hosting that torrent
@@ -138,12 +138,12 @@ namespace MonoTorrent.Client
                 return false;
 
             peer.PeerId = message.PeerId;
-            var id = new PeerId (peer, connection, new MutableBitField (man.Bitfield.Length).SetAll (false)) {
+            var id = new PeerId (peer, connection, new BitField (man.Bitfield.Length).SetAll (false)) {
                 Decryptor = decryptor,
                 Encryptor = encryptor
             };
 
-            man.Mode.HandleMessage (id, message);
+            man.Mode.HandleMessage (id, message, default);
             logger.Info (id.Connection, "Handshake successful handled");
 
             id.ClientApp = new Software (message.PeerId);

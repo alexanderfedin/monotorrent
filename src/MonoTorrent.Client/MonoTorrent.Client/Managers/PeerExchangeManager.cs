@@ -31,6 +31,7 @@ using System;
 using System.Collections.Generic;
 
 using MonoTorrent.Connections;
+using MonoTorrent.Messages.Peer;
 using MonoTorrent.Messages.Peer.Libtorrent;
 
 namespace MonoTorrent.Client
@@ -64,7 +65,7 @@ namespace MonoTorrent.Client
             manager.OnPeerFound += OnAdd;
         }
 
-        internal void OnAdd (object source, PeerAddedEventArgs e)
+        internal void OnAdd (object? source, PeerAddedEventArgs e)
         {
             addedPeers.Add (e.Peer);
         }
@@ -101,7 +102,10 @@ namespace MonoTorrent.Client
                 droppedPeers[i].CompactPeer (dropped.AsSpan (i * 6, 6));
 
             droppedPeers.RemoveRange (0, len);
-            id.MessageQueue.Enqueue (new PeerExchangeMessage (id.ExtensionSupports, added, addedDotF, dropped));
+
+            (var message, var releaser) = PeerMessage.Rent<PeerExchangeMessage> ();
+            message.Initialize (id.ExtensionSupports, new ReadOnlyMemory<byte> (added), new ReadOnlyMemory<byte> (addedDotF), new ReadOnlyMemory<byte> (dropped));
+            id.MessageQueue.Enqueue (message, releaser);
         }
 
         public void Dispose ()

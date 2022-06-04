@@ -1,10 +1,10 @@
-//
+﻿//
 // BitField.cs
 //
 // Authors:
 //   Alan McGovern alan.mcgovern@gmail.com
 //
-// Copyright (C) 2006 Alan McGovern
+// Copyright (C) 2021 Alan McGovern
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -26,233 +26,59 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-
 using System;
 using System.Buffers.Binary;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
 
 namespace MonoTorrent
 {
-    /// <summary>
-    /// This class is for represting the Peer's bitfield
-    /// </summary>
-    [DebuggerDisplay ("{" + nameof (ToDebuggerString) + " ()}")]
-    public class BitField : IEnumerable<bool>
+    public sealed class BitField
     {
-        private protected readonly int[] Data;
+        ReadOnlyBitField? readOnlyWrapper;
+        BitFieldData Data { get; }
 
-        public int Length { get; }
+        public bool AllFalse => Data.AllFalse;
 
-        public int TrueCount { get; private set; }
+        public bool AllTrue => Data.AllTrue;
 
-        public bool AllFalse => TrueCount == 0;
+        public int Length => Data.Length;
 
-        public bool AllTrue => TrueCount == Length;
+        public int LengthInBytes => Data.LengthInBytes;
 
-        public int LengthInBytes => (Length + 7) / 8;
+        public double PercentComplete => Data.PercentComplete;
 
-        public double PercentComplete => (double) TrueCount / Length * 100.0;
+        internal Span<uint> Span => Data.Data;
 
-
-        #region Constructors
-        public BitField (BitField other)
-        {
-            if (other == null)
-                throw new ArgumentNullException (nameof (other));
-
-            Data = new int[other.Data.Length];
-            Length = other.Length;
-
-            From (other);
-        }
-
-        public BitField (ReadOnlySpan<byte> buffer, int length)
-            : this (length)
-        {
-            if ((length + 31) / 32 > buffer.Length)
-                throw new ArgumentOutOfRangeException ("The buffer was too small");
-            From (buffer);
-        }
-
-        public BitField (int length)
-        {
-            if (length < 1)
-                throw new ArgumentOutOfRangeException (nameof (length), "Length must be greater than zero");
-
-            Length = length;
-            Data = new int[(length + 31) / 32];
-        }
-
-        public BitField (bool[] array)
-        {
-            if (array == null)
-                throw new ArgumentNullException (nameof (array));
-
-            if (array.Length < 1)
-                throw new ArgumentOutOfRangeException ("The array must contain at least one element", nameof (array));
-
-            Length = array.Length;
-            this.Data = new int[(array.Length + 31) / 32];
-            for (int i = 0; i < array.Length; i++)
-                Set (i, array[i]);
-        }
-
-        #endregion
-
-
-        #region Methods BitArray
+        public int TrueCount => Data.TrueCount;
 
         public bool this[int index] {
-            get {
-                if (index < 0 || index >= Length)
-                    throw new ArgumentOutOfRangeException (nameof (index));
-                return TrueCount == Length || Get (index);
-            }
-            private protected set => Set (index, value);
+            get => Data[index];
+            set => Data[index] = value;
         }
 
-        internal BitField From (ReadOnlySpan<byte> buffer)
+        ReadOnlyBitField? ReadOnlyWrapper => (readOnlyWrapper ??= ReadOnlyBitField.From (Data));
+
+        public BitField (ReadOnlyBitField other)
         {
-            int end = Length / 32;
-            for (int i = 0; i < end; i++) {
-                Data[i] = BinaryPrimitives.ReadInt32BigEndian (buffer);
-                buffer = buffer.Slice (4);
-            }
-
-            int shift = 24;
-            for (int i = end * 32; i < Length; i += 8) {
-                Data[Data.Length - 1] |= buffer[0] << shift;
-                buffer = buffer.Slice (1);
-                shift -= 8;
-            }
-            Validate ();
-            return this;
+            Data = new BitFieldData (other.Length);
+            Data.TrueCount = other.TrueCount;
+            other.Span.CopyTo (Span);
         }
 
-        private protected BitField From (BitField value)
-        {
-            Check (value);
-            Buffer.BlockCopy (value.Data, 0, Data, 0, Data.Length * 4);
-            TrueCount = value.TrueCount;
-            return this;
-        }
+        public BitField (ReadOnlySpan<byte> array, int length)
+            => Data = new BitFieldData (array, length);
 
-        private protected BitField Not ()
-        {
-            for (int i = 0; i < Data.Length; i++)
-                Data[i] = ~Data[i];
+        public BitField (int length)
+            => Data = new BitFieldData (length);
 
-            TrueCount = Length - TrueCount;
-            return this;
-        }
+        public BitField (bool[] array)
+            => Data = new BitFieldData (array);
 
-        private protected BitField And (BitField value)
-        {
-            Check (value);
+        public bool SequenceEqual (ReadOnlyBitField? other)
+            => other != null && other.TrueCount == TrueCount && other.Span.SequenceEqual (Span);
 
-            for (int i = 0; i < Data.Length; i++)
-                Data[i] &= value.Data[i];
-
-            Validate ();
-            return this;
-        }
-
-        private protected BitField NAnd (BitField value)
-        {
-            Check (value);
-
-            for (int i = 0; i < Data.Length; i++)
-                Data[i] &= ~value.Data[i];
-
-            Validate ();
-            return this;
-        }
-
-        private protected BitField Or (BitField value)
-        {
-            Check (value);
-
-            for (int i = 0; i < Data.Length; i++)
-                Data[i] |= value.Data[i];
-
-            Validate ();
-            return this;
-        }
-
-        private protected BitField Xor (BitField value)
-        {
-            Check (value);
-
-            for (int i = 0; i < Data.Length; i++)
-                Data[i] ^= value.Data[i];
-
-            Validate ();
-            return this;
-        }
-
-        public override bool Equals (object obj)
-            => obj is BitField other
-            && TrueCount == other.TrueCount
-            && Data.AsSpan ().SequenceEqual (other.Data);
-
-        /// <summary>
-        /// Returns the index of the first <see langword="true" /> bit in the bitfield.
-        /// Returns -1 if no <see langword="true" /> bit is found. />
-        /// </summary>
-        /// <returns></returns>
-        public int FirstTrue ()
-            => FirstTrue (0, Length - 1);
-
-        /// <summary>
-        /// Returns the index of the first <see langword="true" /> bit between <paramref name="startIndex"/> and <paramref name="endIndex"/> (inclusive).
-        /// Returns -1 if no <see langword="true" /> bit is found. />
-        /// </summary>
-        /// <param name="startIndex">The first index to check</param>
-        /// <param name="endIndex">The last index to check</param>
-        /// <returns></returns>
-        public int FirstTrue (int startIndex, int endIndex)
-        {
-            if (startIndex < 0 || startIndex >= Length)
-                throw new IndexOutOfRangeException (nameof (startIndex));
-            if (endIndex < 0 || endIndex >= Length)
-                throw new IndexOutOfRangeException (nameof (endIndex));
-
-            if (AllTrue)
-                return startIndex;
-            if (AllFalse)
-                return -1;
-
-            int start;
-            int end;
-
-            // If the number of pieces is an exact multiple of 32, we need to decrement by 1 so we don't overrun the array
-            // For the case when endIndex == 0, we need to ensure we don't go negative
-            int loopEnd = Math.Min ((endIndex / 32), Data.Length - 1);
-            for (int i = (startIndex / 32); i <= loopEnd; i++) {
-                if (Data[i] == 0)        // This one has no true values
-                    continue;
-
-                start = i * 32;
-                end = start + 32;
-                start = (start < startIndex) ? startIndex : start;
-                end = (end > Length) ? Length : end;
-                end = (end > endIndex) ? endIndex : end;
-                if (end == Length && end > 0)
-                    end--;
-
-                for (int j = start; j <= end; j++)
-                    if (Get (j))     // This piece is true
-                        return j;
-            }
-
-            return -1;              // Nothing is true
-        }
+        public int CountTrue (ReadOnlyBitField selector)
+            => Data.CountTrue (selector);
 
         /// <summary>
         /// Returns the index of the first <see langword="false" /> bit in the bitfield.
@@ -260,7 +86,7 @@ namespace MonoTorrent
         /// </summary>
         /// <returns></returns>
         public int FirstFalse ()
-            => FirstFalse (0, Length - 1);
+            => Data.FirstFalse ();
 
         /// <summary>
         /// Returns the index of the first <see langword="false" /> bit between <paramref name="startIndex"/> and <paramref name="endIndex"/> (inclusive).
@@ -270,214 +96,106 @@ namespace MonoTorrent
         /// <param name="endIndex">The last index to check</param>
         /// <returns></returns>
         public int FirstFalse (int startIndex, int endIndex)
+            => Data.FirstFalse (startIndex, endIndex);
+
+        /// <summary>
+        /// Returns the index of the first <see langword="true" /> bit in the bitfield.
+        /// Returns -1 if no <see langword="true" /> bit is found. />
+        /// </summary>
+        /// <returns></returns>
+        public int FirstTrue ()
+            => Data.FirstTrue ();
+
+        /// <summary>
+        /// Returns the index of the first <see langword="true" /> bit between <paramref name="startIndex"/> and <paramref name="endIndex"/> (inclusive).
+        /// Returns -1 if no <see langword="true" /> bit is found. />
+        /// </summary>
+        /// <param name="startIndex">The first index to check</param>
+        /// <param name="endIndex">The last index to check</param>
+        /// <returns></returns>
+        public int FirstTrue (int startIndex, int endIndex)
+            => Data.FirstTrue (startIndex, endIndex);
+
+        public byte[] ToBytes ()
+            => Data.ToBytes ();
+
+        public int ToBytes (Span<byte> buffer)
+            => Data.ToBytes (buffer);
+
+        public BitField And (ReadOnlyBitField value)
         {
-            if (startIndex < 0 || startIndex >= Length)
-                throw new IndexOutOfRangeException (nameof (startIndex));
-            if (endIndex < 0 || endIndex >= Length)
-                throw new IndexOutOfRangeException (nameof (endIndex));
-
-            int start;
-            int end;
-
-            if (AllTrue)
-                return -1;
-            if (AllFalse)
-                return 0;
-
-            // If the number of pieces is an exact multiple of 32, we need to decrement by 1 so we don't overrun the array
-            // For the case when endIndex == 0, we need to ensure we don't go negative
-            int loopEnd = Math.Min ((endIndex / 32), Data.Length - 1);
-            for (int i = (startIndex / 32); i <= loopEnd; i++) {
-                if (Data[i] == ~0)        // This one has no false values
-                    continue;
-
-                start = i * 32;
-                end = start + 32;
-                start = (start < startIndex) ? startIndex : start;
-                end = (end > Length) ? Length : end;
-                end = (end > endIndex) ? endIndex : end;
-                if (end == Length && end > 0)
-                    end--;
-
-                for (int j = start; j <= end; j++)
-                    if (!Get (j))     // This piece is true
-                        return j;
-            }
-
-            return -1;              // Nothing is true
-        }
-
-        [MethodImpl (MethodImplOptions.AggressiveInlining)]
-        bool Get (int index)
-            => (Data[index >> 5] & (1 << (31 - (index & 31)))) != 0;
-
-        public IEnumerator<bool> GetEnumerator ()
-        {
-            for (int i = 0; i < Length; i++)
-                yield return Get (i);
-        }
-
-        public int CountTrue (BitField selector)
-        {
-            if (selector == null)
-                throw new ArgumentNullException (nameof (selector));
-
-            if (selector.Length != Length)
-                throw new ArgumentException ("The selector should be the same length as this bitfield", nameof (selector));
-
-            uint count = 0;
-            for (int i = 0; i < Data.Length; i++)
-                count += CountBits ((uint) (Data[i] & selector.Data[i]));
-            return (int) count;
-        }
-
-        IEnumerator IEnumerable.GetEnumerator ()
-        {
-            return GetEnumerator ();
-        }
-
-        public override int GetHashCode ()
-        {
-            int count = 0;
-            for (int i = 0; i < Data.Length; i++)
-                count += Data[i];
-
-            return count;
-        }
-
-        private protected BitField Set (int index, bool value)
-        {
-            if (index < 0 || index >= Length)
-                throw new ArgumentOutOfRangeException (nameof (index));
-
-            if (value) {
-                if ((Data[index >> 5] & (1 << (31 - (index & 31)))) == 0)// If it's not already true
-                    TrueCount++;                                        // Increase true count
-                Data[index >> 5] |= (1 << (31 - index & 31));
-            } else {
-                if ((Data[index >> 5] & (1 << (31 - (index & 31)))) != 0)// If it's not already false
-                    TrueCount--;                                        // Decrease true count
-                Data[index >> 5] &= ~(1 << (31 - (index & 31)));
-            }
-
+            Data.And (value);
             return this;
         }
 
-        private protected BitField SetTrue ((int startPiece, int endPiece) range)
+        public BitField From (ReadOnlySpan<byte> buffer)
         {
-            for (int i = range.startPiece; i <= range.endPiece; i++)
-                Set (i, true);
+            Data.From (buffer);
             return this;
         }
 
-        private protected BitField SetTrue (params int[] indices)
+        public BitField From (ReadOnlyBitField value)
         {
-            foreach (int index in indices)
-                Set (index, true);
+            Data.From (value);
             return this;
         }
 
-        private protected BitField SetFalse (params int[] indices)
+        public BitField NAnd (ReadOnlyBitField value)
         {
-            foreach (int index in indices)
-                Set (index, false);
+            Data.NAnd (value);
             return this;
         }
 
-        private protected BitField SetAll (bool value)
+        public BitField Not ()
         {
-            if ((TrueCount == Length && value) || (!value && TrueCount == 0))
-                return this;
-
-            if (value) {
-                for (int i = 0; i < Data.Length; i++)
-                    Data[i] = ~0;
-                Validate ();
-            } else {
-                for (int i = 0; i < Data.Length; i++)
-                    Data[i] = 0;
-                TrueCount = 0;
-            }
-
+            Data.Not ();
             return this;
         }
 
-        public byte[] ToByteArray ()
+        public BitField Or (ReadOnlyBitField value)
         {
-            byte[] data = new byte[LengthInBytes];
-            ToBytes (data);
-            return data;
+            Data.Or (value);
+            return this;
         }
 
-        public void ToBytes (Span<byte> buffer)
+        public BitField Xor (ReadOnlyBitField value)
         {
-            if (buffer == null)
-                throw new ArgumentNullException (nameof (buffer));
-
-            ZeroUnusedBits ();
-            int end = Length / 32;
-            int offset = 0;
-            for (int i = 0; i < end; i++) {
-                buffer[offset++] = (byte) (Data[i] >> 24);
-                buffer[offset++] = (byte) (Data[i] >> 16);
-                buffer[offset++] = (byte) (Data[i] >> 8);
-                buffer[offset++] = (byte) (Data[i] >> 0);
-            }
-
-            int shift = 24;
-            for (int i = end * 32; i < Length; i += 8) {
-                buffer[offset++] = (byte) (Data[Data.Length - 1] >> shift);
-                shift -= 8;
-            }
+            Data.Xor (value);
+            return this;
         }
 
-        [ExcludeFromCodeCoverage]
-        string ToDebuggerString ()
+        public BitField Set (int index, bool value)
         {
-            var sb = new StringBuilder (Data.Length * 16);
-            for (int i = 0; i < Length; i++) {
-                sb.Append (Get (i) ? 'T' : 'F');
-                sb.Append (' ');
-            }
-
-            return sb.ToString (0, sb.Length - 1);
+            Data[index] = value;
+            return this;
         }
 
-        private protected void Validate ()
+        public BitField SetAll (bool value)
         {
-            ZeroUnusedBits ();
-
-            // Update the population count
-            uint count = 0;
-            for (int i = 0; i < Data.Length; i++)
-                count += CountBits ((uint) Data[i]);
-            TrueCount = (int) count;
+            Data.SetAll (value);
+            return this;
         }
 
-        [MethodImpl (MethodImplOptions.AggressiveInlining)]
-        static uint CountBits (uint v)
+        public BitField SetFalse (params int[] indices)
         {
-            v -= (v >> 1) & 0x55555555;
-            v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
-            return (((v + (v >> 4) & 0xF0F0F0F) * 0x1010101)) >> 24;
+            Data.SetFalse (indices);
+            return this;
         }
 
-        void ZeroUnusedBits ()
+        public BitField SetTrue ((int startPiece, int endPiece) range)
         {
-            int shift = 32 - Length % 32;
-            if (shift != 0)
-                Data[Data.Length - 1] &= (-1 << shift);
+            Data.SetTrue (range);
+            return this;
         }
 
-        void Check (BitField value)
+        public BitField SetTrue (params int[] indices)
         {
-            if (value is null)
-                throw new ArgumentNullException (nameof (value));
-
-            if (Length != value.Length)
-                throw new ArgumentException ("BitFields are of different lengths", nameof (value));
+            Data.SetTrue (indices);
+            return this;
         }
 
-        #endregion
+        [return: NotNullIfNotNull ("bitfield")]
+        public static implicit operator ReadOnlyBitField? (BitField? bitfield)
+            => bitfield?.ReadOnlyWrapper;
     }
 }

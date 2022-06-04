@@ -35,15 +35,15 @@ namespace MonoTorrent.PieceWriter
 {
     static class IPieceWriterExtensions
     {
-        public static async ReusableTask<int> ReadFromFilesAsync (this IPieceWriter writer, ITorrentData manager, BlockInfo request, Memory<byte> buffer)
+        public static async ReusableTask<int> ReadFromFilesAsync (this IPieceWriter writer, ITorrentManagerInfo manager, BlockInfo request, Memory<byte> buffer)
         {
             var count = request.RequestLength;
-            var offset = request.ToByteOffset (manager.PieceLength);
+            var offset = manager.TorrentInfo!.PieceIndexToByteOffset (request.PieceIndex) + request.StartOffset;
 
             if (count < 1)
                 throw new ArgumentOutOfRangeException (nameof (count), $"Count must be greater than zero, but was {count}.");
 
-            if (offset < 0 || offset + count > manager.Size)
+            if (offset < 0 || offset + count > manager.TorrentInfo!.Size)
                 throw new ArgumentOutOfRangeException (nameof (offset));
 
             int totalRead = 0;
@@ -52,15 +52,15 @@ namespace MonoTorrent.PieceWriter
             offset -= files[i].OffsetInTorrent;
 
             while (totalRead < count) {
-                int fileToRead = (int) Math.Min (files[i].Length - offset, count - totalRead);
+                int fileToRead = (int) Math.Min (files[i].Length + files[i].Padding - offset, count - totalRead);
                 fileToRead = Math.Min (fileToRead, Constants.BlockSize);
 
-                if (fileToRead != await writer.ReadAsync (files[i], offset, buffer.Slice (totalRead, fileToRead)))
+                if (fileToRead != await writer.PaddingAwareReadAsync (files[i], offset, buffer.Slice (totalRead, fileToRead)))
                     return totalRead;
 
                 offset += fileToRead;
                 totalRead += fileToRead;
-                if (offset >= files[i].Length) {
+                if (offset >= (files[i].Length + files[i].Padding)) {
                     offset = 0;
                     i++;
                 }
@@ -69,11 +69,11 @@ namespace MonoTorrent.PieceWriter
             return totalRead;
         }
 
-        public static async ReusableTask WriteToFilesAsync (this IPieceWriter writer, ITorrentData manager, BlockInfo request, Memory<byte> buffer)
+        public static async ReusableTask WriteToFilesAsync (this IPieceWriter writer, ITorrentManagerInfo manager, BlockInfo request, Memory<byte> buffer)
         {
             var count = request.RequestLength;
-            var torrentOffset = request.ToByteOffset (manager.PieceLength);
-            if (torrentOffset < 0 || torrentOffset + count > manager.Size)
+            var torrentOffset = manager.TorrentInfo!.PieceIndexToByteOffset (request.PieceIndex) + request.StartOffset;
+            if (torrentOffset < 0 || torrentOffset + count > manager.TorrentInfo!.Size)
                 throw new ArgumentOutOfRangeException (nameof (request));
 
             int totalWritten = 0;
@@ -82,13 +82,14 @@ namespace MonoTorrent.PieceWriter
             var offset = torrentOffset - files[i].OffsetInTorrent;
 
             while (totalWritten < count) {
-                int fileToWrite = (int) Math.Min (files[i].Length - offset, count - totalWritten);
+                int fileToWrite = (int) Math.Min (files[i].Length + files[i].Padding - offset, count - totalWritten);
                 fileToWrite = Math.Min (fileToWrite, Constants.BlockSize);
 
-                await writer.WriteAsync (files[i], offset, buffer.Slice (totalWritten, fileToWrite));
+                await writer.PaddingAwareWriteAsync (files[i], offset, buffer.Slice (totalWritten, fileToWrite));
+
                 offset += fileToWrite;
                 totalWritten += fileToWrite;
-                if (offset >= files[i].Length) {
+                if (offset >= (files[i].Length + files[i].Padding)) {
                     offset = 0;
                     i++;
                 }

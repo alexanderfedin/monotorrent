@@ -26,6 +26,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+#nullable enable
 
 using System;
 using System.Collections.Generic;
@@ -45,7 +46,7 @@ namespace MonoTorrent.Client
             public Action Action;
 
             public SendOrPostCallback SendOrPostCallback;
-            public object State;
+            public object? State;
 
             public ManualResetEventSlim WaitHandle;
         }
@@ -120,9 +121,9 @@ namespace MonoTorrent.Client
 
         public object QueueWait(Func<object> func)
         {
-            object result = null;
+            object? result = null;
             Send(t => result = func(), null);
-            return result;
+            return result!;
         }
 
         public void QueueTimeout(TimeSpan span, Func<bool> task)
@@ -130,20 +131,18 @@ namespace MonoTorrent.Client
             if (span.TotalMilliseconds < 1)
                 span = TimeSpan.FromMilliseconds(1);
             bool disposed = false;
-            Timer timer = null;
+            Timer timer = null!;
 
-            void Callback(object state)
-            {
-                if (!disposed && !task())
-                {
+            SendOrPostCallback callback = state => {
+                if (!disposed && !task ()) {
                     disposed = true;
-                    timer.Dispose();
+                    timer.Dispose ();
                 }
-            }
+            };
 
             timer = new Timer(state =>
             {
-                Post(Callback, null);
+                Post(callback, null);
             }, null, span, span);
         }
 
@@ -158,13 +157,13 @@ namespace MonoTorrent.Client
         }
 
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public override void Post(SendOrPostCallback d, object state)
+        public override void Post(SendOrPostCallback d, object? state)
         {
             Queue(new QueuedTask { SendOrPostCallback = d, State = state });
         }
 
         [EditorBrowsable(EditorBrowsableState.Never)]
-        public override void Send(SendOrPostCallback d, object state)
+        public override void Send(SendOrPostCallback d, object? state)
         {
             if (thread == Thread.CurrentThread)
             {

@@ -40,36 +40,23 @@ namespace MonoTorrent.PiecePicking
     [TestFixture]
     public class StandardPickerTests
     {
-        class TestTorrentData : ITorrentData
-        {
-            public IList<ITorrentFileInfo> Files { get; set; }
-            public InfoHash InfoHash => new InfoHash (new byte[20]);
-            public string Name => "Test Torrent";
-            public int PieceLength { get; set; }
-            public long Size { get; set; }
-
-            public int BlocksPerPiece => PieceLength / Constants.BlockSize;
-            public int PieceCount => (int) Math.Ceiling ((double) Size / PieceLength);
-            public int TotalBlocks => (int) Math.Ceiling ((double) Size / Constants.BlockSize);
-        }
-
-        MutableBitField bitfield;
+        BitField bitfield;
         PeerId peer;
         List<PeerId> peers;
         IPiecePicker picker;
-        TestTorrentData torrentData;
+        TestTorrentManagerInfo torrentData;
 
         [SetUp]
         public void Setup ()
         {
             int pieceCount = 40;
             int pieceLength = 256 * 1024;
-            bitfield = new MutableBitField (pieceCount);
-            torrentData = new TestTorrentData {
-                Files = TorrentFileInfo.Create (pieceLength, ("File", pieceLength * pieceCount, "Full/Path/File")),
-                PieceLength = pieceLength,
-                Size = pieceLength * pieceCount
-            };
+            bitfield = new BitField (pieceCount);
+            torrentData = TestTorrentManagerInfo.Create(
+                files: TorrentFileInfo.Create (pieceLength, ("File", pieceLength * pieceCount, "Full/Path/File")),
+                pieceLength: pieceLength,
+                size: pieceLength * pieceCount
+            );
             peers = new List<PeerId> ();
 
             picker = new StandardPicker ();
@@ -115,7 +102,7 @@ namespace MonoTorrent.PiecePicking
             while ((request = picker.PickPiece (id, id.BitField, new List<PeerId> ())) != null)
                 pieceRequests.Add (request.Value);
 
-            var expectedRequests = torrentData.PieceLength / Constants.BlockSize;
+            var expectedRequests = torrentData.TorrentInfo.BlocksPerPiece(1);
             Assert.AreEqual (expectedRequests * 2, pieceRequests.Count, "#1");
             Assert.IsTrue (pieceRequests.All (r => r.PieceIndex == 1 || r.PieceIndex == 2), "#2");
             for (int i = 0; i < expectedRequests; i++) {
@@ -154,23 +141,24 @@ namespace MonoTorrent.PiecePicking
         {
             peers[0].IsChoking = false;
             peers[0].BitField.SetAll (true);
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
 
             bitfield[1] = true;
-            var message = picker.PickPiece (peers[0], new MutableBitField (bitfield).Not (), peers, 1, 0, 10);
-            Assert.AreEqual (0, message[0].PieceIndex);
+            Assert.AreEqual (1, picker.PickPiece (peers[0], new BitField (bitfield).Not (), peers, 0, 10, buffer));
+            Assert.AreEqual (0, buffer[0].PieceIndex);
 
             peers[1].IsChoking = false;
             peers[1].BitField.SetAll (true);
             peers[1].RepeatedHashFails = peers[1].TotalHashFails = 1;
-            message = picker.PickPiece (peers[1], new MutableBitField (bitfield).Not (), peers, 1, 0, 10);
-            Assert.AreEqual (2, message[0].PieceIndex);
+            Assert.AreEqual (1, picker.PickPiece (peers[1], new BitField (bitfield).Not (), peers, 0, 10, buffer));
+            Assert.AreEqual (2, buffer[0].PieceIndex);
         }
 
         [Test]
         public void NoInterestingPieces ()
         {
             peer.IsChoking = false;
-            Assert.IsNull (picker.PickPiece (peer, new BitField (torrentData.PieceCount), peers));
+            Assert.IsNull (picker.PickPiece (peer, new ReadOnlyBitField (torrentData.TorrentInfo.PieceCount ()), peers));
         }
 
         [Test]
@@ -379,28 +367,31 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void RequestBlocks_50 ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[50];
             peer.IsChoking = false;
             peer.BitField.SetAll (true);
-            var b = picker.PickPiece (peer, peer.BitField, peers, 50);
-            Assert.AreEqual (50, b.Count, "#1");
+            var b = picker.PickPiece (peer, peer.BitField, peers, buffer);
+            Assert.AreEqual (50, b, "#1");
         }
 
         [Test]
         public void RequestBlocks_All ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[torrentData.TotalBlocks];
             peer.IsChoking = false;
             peer.BitField.SetAll (true);
-            var b = picker.PickPiece (peer, peer.BitField, peers, torrentData.TotalBlocks);
-            Assert.AreEqual (torrentData.TotalBlocks, b.Count, "#1");
+            var b = picker.PickPiece (peer, peer.BitField, peers, buffer);
+            Assert.AreEqual (torrentData.TotalBlocks, b, "#1");
         }
 
         [Test]
         public void RequestBlocks_TooMany ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[torrentData.TotalBlocks * 2];
             peer.IsChoking = false;
             peer.BitField.SetAll (true);
-            var b = picker.PickPiece (peer, peer.BitField, peers, torrentData.TotalBlocks * 2);
-            Assert.AreEqual (torrentData.TotalBlocks, b.Count, "#1");
+            var b = picker.PickPiece (peer, peer.BitField, peers, buffer);
+            Assert.AreEqual (torrentData.TotalBlocks, b, "#1");
         }
 
         [Test]
@@ -410,7 +401,7 @@ namespace MonoTorrent.PiecePicking
             peer.SupportsFastPeer = true;
             peer.IsAllowedFastPieces.AddRange (new[] { 1, 2, 5, 55, 62, 235, 42624 });
             peer.BitField.SetAll (true);
-            for (int i = 0; i < torrentData.BlocksPerPiece * 3; i++) {
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0) * 3; i++) {
                 var m = picker.PickPiece (peer, peer.BitField, peers).Value;
                 Assert.IsNotNull (m, "#1." + i);
                 Assert.IsTrue (m.PieceIndex == 1 || m.PieceIndex == 2 || m.PieceIndex == 5, "#2");
@@ -428,7 +419,7 @@ namespace MonoTorrent.PiecePicking
             var message = picker.PickPiece (peer, peer.BitField, peers);
             Assert.IsTrue (picker.ValidatePiece (peer, new BlockInfo (message.Value.PieceIndex, message.Value.StartOffset, message.Value.RequestLength), out bool pieceComplete, out IList<IPeer> peersInvolved), "#1");
             picker.CancelRequests (peer);
-            for (int i = 1; i < torrentData.BlocksPerPiece; i++) {
+            for (int i = 1; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++) {
                 message = picker.PickPiece (peer, peer.BitField, peers);
                 Assert.IsTrue (picker.ValidatePiece (peer, new BlockInfo (message.Value.PieceIndex, message.Value.StartOffset, message.Value.RequestLength), out pieceComplete, out peersInvolved), "#2." + i);
             }
@@ -438,28 +429,30 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void DoesntHaveFastPiece ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
             peer.IsChoking = true;
             peer.SupportsFastPeer = true;
             peer.IsAllowedFastPieces.AddRange (new[] { 1, 2, 3, 4 });
             peer.BitField.SetAll (true);
             picker = new StandardPicker ();
             picker.Initialise (torrentData);
-            var bundle = picker.PickPiece (peer, new BitField (peer.BitField.Length), peers, 1, 0, peer.BitField.Length - 1);
-            Assert.IsNull (bundle);
+            var requested = picker.PickPiece (peer, new ReadOnlyBitField (peer.BitField.Length), peers, 0, peer.BitField.Length - 1, buffer);
+            Assert.AreEqual (0, requested);
         }
 
 
         [Test]
         public void DoesntHaveSuggestedPiece ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
             peer.IsChoking = false;
             peer.SupportsFastPeer = true;
             peer.SuggestedPieces.AddRange (new[] { 1, 2, 3, 4 });
             peer.BitField.SetAll (true);
             picker = new StandardPicker ();
             picker.Initialise (torrentData);
-            var bundle = picker.PickPiece (peer, new BitField (peer.BitField.Length), peers, 1, 0, peer.BitField.Length - 1);
-            Assert.IsNull (bundle);
+            var requested = picker.PickPiece (peer, new ReadOnlyBitField (peer.BitField.Length), peers, 0, peer.BitField.Length - 1, buffer);
+            Assert.AreEqual (0, requested);
         }
 
         [Test]
@@ -475,7 +468,7 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void CreateFinalPiece ()
         {
-            var piece = new Piece (0, Constants.BlockSize * 3 + 1);
+            var piece = new StandardPicker.Piece (0, Constants.BlockSize * 3 + 1);
             Assert.AreEqual (4, piece.BlockCount);
 
             Assert.AreEqual (Constants.BlockSize * 3, piece.Blocks[3].StartOffset);
@@ -485,7 +478,7 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void CreateNormalPiece ()
         {
-            var piece = new Piece (0, Constants.BlockSize * 3);
+            var piece = new StandardPicker.Piece (0, Constants.BlockSize * 3);
             Assert.AreEqual (3, piece.BlockCount);
 
             Assert.AreEqual (Constants.BlockSize * 0, piece.Blocks[0].StartOffset);
@@ -502,7 +495,7 @@ namespace MonoTorrent.PiecePicking
         public void CreatePiece_NotMultipleOf16KB ()
         {
             var totalSize = 2318336;
-            var piece = new Piece (0, totalSize);
+            var piece = new StandardPicker.Piece (0, totalSize);
             Assert.AreEqual (142, piece.BlockCount);
 
             for (int i = 0; i < piece.BlockCount - 1; i++)
@@ -513,16 +506,18 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void PickBundle ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[torrentData.TorrentInfo.BlocksPerPiece (0) * 5];
             peer.IsChoking = false;
             peer.BitField.SetAll (true);
 
-            IList<BlockInfo> bundle;
+            int requested;
             var messages = new List<BlockInfo> ();
 
-            while ((bundle = picker.PickPiece (peer, peer.BitField, peers, torrentData.BlocksPerPiece * 5)) != null) {
-                Assert.IsTrue (bundle.Count == torrentData.BlocksPerPiece * 5
-                              || (bundle.Count + messages.Count) == torrentData.TotalBlocks, "#1");
-                messages.AddRange (bundle);
+            while ((requested = picker.PickPiece (peer, peer.BitField, peers, buffer)) > 0) {
+                Assert.IsTrue (requested == torrentData.TorrentInfo.BlocksPerPiece (0) * 5
+                              || (requested + messages.Count) == torrentData.TotalBlocks, "#1");
+                for (int i = 0; i < requested; i++)
+                    messages.Add (buffer[i]);
             }
             Assert.AreEqual (torrentData.TotalBlocks, messages.Count, "#2");
         }
@@ -535,15 +530,17 @@ namespace MonoTorrent.PiecePicking
             for (int i = 0; i < 7; i++)
                 peer.BitField[i] = true;
 
-            IList<BlockInfo> bundle;
+            int requested;
             var messages = new List<BlockInfo> ();
 
-            while ((bundle = picker.PickPiece (peer, peer.BitField, peers, torrentData.BlocksPerPiece * 5)) != null) {
-                Assert.IsTrue (bundle.Count == torrentData.BlocksPerPiece * 5
-                              || (bundle.Count + messages.Count) == torrentData.BlocksPerPiece * 7, "#1");
-                messages.AddRange (bundle);
+            Span<BlockInfo> buffer = stackalloc BlockInfo[torrentData.TorrentInfo.BlocksPerPiece (0) * 7];
+            while ((requested = picker.PickPiece (peer, peer.BitField, peers, buffer)) > 0) {
+                Assert.IsTrue (requested == torrentData.TorrentInfo.BlocksPerPiece (0) * 5
+                              || (requested + messages.Count) == torrentData.TorrentInfo.BlocksPerPiece (0) * 7, "#1");
+                for (int i = 0; i < requested; i++)
+                    messages.Add (buffer[i]);
             }
-            Assert.AreEqual (torrentData.BlocksPerPiece * 7, messages.Count, "#2");
+            Assert.AreEqual (torrentData.TorrentInfo.BlocksPerPiece (0) * 7, messages.Count, "#2");
         }
 
         [Test]
@@ -559,31 +556,36 @@ namespace MonoTorrent.PiecePicking
             for (int i = 0; i < 7; i++)
                 peer.BitField[i] = true;
 
-            IList<BlockInfo> bundle;
+            int requested;
             BlockInfo? request;
 
-            while ((bundle = picker.PickPiece (peer, peer.BitField, peers, torrentData.BlocksPerPiece * 5)) != null)
-                messages.AddRange (bundle);
+            Span<BlockInfo> buffer = stackalloc BlockInfo[torrentData.TorrentInfo.BlocksPerPiece (0) * 5];
+            while ((requested = picker.PickPiece (peer, peer.BitField, peers, buffer)) > 0) {
+                for (int i = 0; i < requested; i++)
+                    messages.Add (buffer[i]);
+            }
             while ((request = picker.ContinueAnyExistingRequest (peer, 0, bitfield.Length - 1)) != null)
                 messages.Add (request.Value);
 
-            Assert.AreEqual (torrentData.BlocksPerPiece * 7, messages.Count, "#2");
+            Assert.AreEqual (torrentData.TorrentInfo.BlocksPerPiece (0) * 7, messages.Count, "#2");
         }
 
         [Test]
         public void PickBundle4 ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
             peers[0].IsChoking = false;
             peers[0].BitField.SetAll (true);
 
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 4, 4);
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 6, 6);
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 4, 4, buffer);
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 6, 6, buffer);
 
-            var b = picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 20 * torrentData.BlocksPerPiece);
-            foreach (BlockInfo m in b)
-                Assert.IsTrue (m.PieceIndex > 6);
+            buffer = stackalloc BlockInfo[20 * torrentData.TorrentInfo.BlocksPerPiece (0)];
+            var b = picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), buffer);
+            for (int i = 0; i < b; i++)
+                Assert.IsTrue (buffer[i].PieceIndex > 6);
         }
 
         [Test]
@@ -595,10 +597,11 @@ namespace MonoTorrent.PiecePicking
 
             peers[0].IsChoking = false;
 
-            var b = picker.PickPiece (peers[0], bitfield, new List<PeerId> (), 20 * torrentData.BlocksPerPiece);
-            Assert.AreEqual (20 * torrentData.BlocksPerPiece, b.Count);
-            foreach (BlockInfo m in b)
-                Assert.IsTrue (m.PieceIndex >= 10 && m.PieceIndex < 30);
+            Span<BlockInfo> buffer = stackalloc BlockInfo[20 * torrentData.TorrentInfo.BlocksPerPiece (0)];
+            var b = picker.PickPiece (peers[0], bitfield, new List<PeerId> (), buffer);
+            Assert.AreEqual (20 * torrentData.TorrentInfo.BlocksPerPiece (0), b);
+            for (int i = 0; i < b; i++)
+                Assert.IsTrue (buffer[i].PieceIndex >= 10 && buffer[i].PieceIndex < 30);
         }
 
         [Test]
@@ -609,19 +612,21 @@ namespace MonoTorrent.PiecePicking
             peers[0].IsChoking = false;
             peers[0].BitField.SetAll (true);
 
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 0, 0);
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 1, 1);
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 3, 3);
-            for (int i = 0; i < torrentData.BlocksPerPiece; i++)
-                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 6, 6);
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 0, 0, buffer);
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 1, 1, buffer);
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 3, 3, buffer);
+            for (int i = 0; i < torrentData.TorrentInfo.BlocksPerPiece (0); i++)
+                picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 6, 6, buffer);
 
-            var b = picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), 2 * torrentData.BlocksPerPiece);
-            Assert.AreEqual (2 * torrentData.BlocksPerPiece, b.Count);
-            foreach (BlockInfo m in b)
-                Assert.IsTrue (m.PieceIndex >= 4 && m.PieceIndex < 6);
+            buffer = stackalloc BlockInfo[2 * torrentData.TorrentInfo.BlocksPerPiece (0)];
+            var b = picker.PickPiece (peers[0], peers[0].BitField, new List<PeerId> (), buffer);
+            Assert.AreEqual (2 * torrentData.TorrentInfo.BlocksPerPiece (0), b);
+            for (int i = 0; i < b; i++)
+                Assert.IsTrue (buffer[i].PieceIndex >= 4 && buffer[i].PieceIndex < 6);
         }
 
         [Test]
@@ -745,7 +750,7 @@ namespace MonoTorrent.PiecePicking
             // Now the duplicate will be discarded as we've already received the primary request.
             Assert.IsFalse (picker.ValidatePiece (seeder2, request, out complete, out peersInvolved));
             Assert.IsFalse (complete);
-            Assert.IsNull (peersInvolved);
+            Assert.IsEmpty (peersInvolved);
         }
 
         [Test]
@@ -779,14 +784,14 @@ namespace MonoTorrent.PiecePicking
             // Now the primary will be discarded as we've already received the primary request.
             Assert.IsFalse (picker.ValidatePiece (seeder1, request, out complete, out peersInvolved));
             Assert.IsFalse (complete);
-            Assert.IsNull (peersInvolved);
+            Assert.IsEmpty (peersInvolved);
         }
 
         [Test]
         public void DupeRequests_PeerCannotDuplicateOwnRequest ()
         {
             var seeder = PeerId.CreateNull (bitfield.Length, true, false, true);
-            var singlePiece = new MutableBitField (seeder.BitField).SetAll (false).Set (3, true);
+            var singlePiece = new BitField (seeder.BitField).SetAll (false).Set (3, true);
 
             Assert.IsNull (picker.ContinueAnyExistingRequest (seeder, 0, bitfield.Length - 1));
 
@@ -810,7 +815,7 @@ namespace MonoTorrent.PiecePicking
 
             var queue = new Queue<IPeer> (seeders);
             var requests = seeders.ToDictionary (t => t, t => new List<BlockInfo> ());
-            var singlePiece = new MutableBitField (seeders[0].BitField).SetAll (false).Set (3, true);
+            var singlePiece = new BitField (seeders[0].BitField).SetAll (false).Set (3, true);
 
             // Request an entire piece using 1 peer first to ensure we have collisions when
             // issuing duplicates. In the end all peers should have the same set though.
@@ -822,7 +827,7 @@ namespace MonoTorrent.PiecePicking
                 else
                     break;
             }
-            Assert.AreEqual (torrentData.BlocksPerPiece, requests[seeders[0]].Count);
+            Assert.AreEqual (torrentData.TorrentInfo.BlocksPerPiece (0), requests[seeders[0]].Count);
 
             while (queue.Count > 0) {
                 var seeder = queue.Dequeue ();
@@ -837,7 +842,7 @@ namespace MonoTorrent.PiecePicking
 
             CollectionAssert.AreEquivalent (requests[seeders[0]], requests[seeders[1]]);
             CollectionAssert.AreEquivalent (requests[seeders[1]], requests[seeders[2]]);
-            Assert.AreEqual (torrentData.BlocksPerPiece, requests.Values.First ().Count);
+            Assert.AreEqual (torrentData.TorrentInfo.BlocksPerPiece (0), requests.Values.First ().Count);
         }
     }
 }

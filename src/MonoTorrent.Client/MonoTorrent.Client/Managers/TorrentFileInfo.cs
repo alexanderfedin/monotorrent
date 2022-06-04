@@ -27,11 +27,12 @@
 //
 
 
+using System;
 using System.Linq;
 
 namespace MonoTorrent.Client
 {
-    class TorrentFileInfo : ITorrentFileInfo
+    class TorrentFileInfo : ITorrentManagerFile
     {
         public static string IncompleteFileSuffix => ".!mt";
 
@@ -43,7 +44,8 @@ namespace MonoTorrent.Client
 
         ITorrentFile TorrentFile { get; }
 
-        public BitField BitField { get; }
+        internal BitField BitField { get; }
+        ReadOnlyBitField ITorrentManagerFile.BitField => BitField;
 
         public Priority Priority { get; set; } = Priority.Normal;
 
@@ -57,11 +59,15 @@ namespace MonoTorrent.Client
 
         public long Length => TorrentFile.Length;
 
+        public long Padding => TorrentFile.Padding;
+
+        public ReadOnlyMemory<byte> PiecesRoot => TorrentFile.PiecesRoot;
+
         public TorrentFileInfo (ITorrentFile torrentFile, string fullPath)
         {
             TorrentFile = torrentFile;
             FullPath = DownloadCompleteFullPath = DownloadIncompleteFullPath = fullPath;
-            BitField = new MutableBitField (torrentFile.EndPieceIndex - torrentFile.StartPieceIndex + 1);
+            BitField = new BitField (torrentFile.EndPieceIndex - torrentFile.StartPieceIndex + 1);
         }
 
         public (int startPiece, int endPiece) GetSelector ()
@@ -79,6 +85,26 @@ namespace MonoTorrent.Client
                 var info = infos.Single (info => info.torrentPath == t.Path);
                 return new TorrentFileInfo (t, info.fullPath);
             }).ToArray ();
+        }
+
+        internal static string PathEscape (string path)
+        {
+            foreach (var illegal in System.IO.Path.GetInvalidPathChars ())
+                path = path.Replace ($"{illegal}", Convert.ToString (illegal, 16));
+            return path;
+        }
+
+        internal static string PathAndFileNameEscape (string path)
+        {
+            var probableFilenameIndex = path.LastIndexOf (System.IO.Path.DirectorySeparatorChar);
+            var dir = probableFilenameIndex == -1 ? "" : path.Substring (0, probableFilenameIndex);
+            var filename = probableFilenameIndex == -1 ? path : path.Substring (probableFilenameIndex + 1);
+
+            dir = PathEscape (dir);
+
+            foreach (var illegal in System.IO.Path.GetInvalidFileNameChars ())
+                filename = filename.Replace ($"{illegal}", $"_{Convert.ToString (illegal, 16)}_");
+            return System.IO.Path.Combine (dir, filename);
         }
     }
 }

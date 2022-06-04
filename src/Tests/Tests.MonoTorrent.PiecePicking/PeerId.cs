@@ -24,15 +24,15 @@ namespace MonoTorrent.PiecePicking
             var peer = new PeerId {
                 IsChoking = isChoking,
                 AmInterested = amInterested,
-                BitField = new MutableBitField (bitfieldLength).SetAll (seeder)
+                BitField = new BitField (bitfieldLength).SetAll (seeder)
             };
             return peer;
         }
 
         public bool AmInterested { get; set; }
         public int AmRequestingPiecesCount { get; set; }
-        BitField IPeer.BitField => BitField;
-        public MutableBitField BitField { get; private set; }
+        ReadOnlyBitField IPeer.BitField => BitField;
+        public BitField BitField { get; private set; }
         public bool CanRequestMorePieces { get; set; } = true;
         public long DownloadSpeed { get; }
         public List<int> IsAllowedFastPieces { get; } = new List<int> ();
@@ -61,9 +61,10 @@ namespace MonoTorrent.PiecePicking
             Requests.Add (request);
         }
 
-        public void EnqueueRequests (IList<BlockInfo> requests)
+        public void EnqueueRequests (Span<BlockInfo> requests)
         {
-            Requests.AddRange (requests);
+            for (int i = 0; i < requests.Length; i++)
+                Requests.Add (requests[i]);
         }
 
         public int PreferredRequestAmount (int pieceLength)

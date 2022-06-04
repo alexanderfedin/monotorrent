@@ -35,6 +35,29 @@ using MonoTorrent.Connections.Dht;
 
 namespace MonoTorrent.Dht
 {
+    public interface ITransferMonitor
+    {
+        /// <summary>
+        /// Total bytes sent since the start of the session.
+        /// </summary>
+        long BytesSent { get; }
+
+        /// <summary>
+        /// Total bytes received since the start of the session.
+        /// </summary>
+        long BytesReceived { get; }
+
+        /// <summary>
+        /// Estimate of the amount of data received every second, in bytes/second.
+        /// </summary>
+        long DownloadRate { get; }
+
+        /// <summary>
+        /// Estimate of the amount of data sent every second, in bytes/second.
+        /// </summary>
+        long UploadRate { get; }
+    }
+
     public interface IDhtEngine : IDisposable
     {
         event EventHandler<PeersFoundEventArgs> PeersFound;
@@ -42,16 +65,18 @@ namespace MonoTorrent.Dht
 
         TimeSpan AnnounceInterval { get; }
         bool Disposed { get; }
+        ITransferMonitor Monitor { get; }
         TimeSpan MinimumAnnounceInterval { get; }
+        int NodeCount { get; }
         DhtState State { get; }
 
-        void Add (IEnumerable<byte[]> nodes);
-        void Announce (InfoHash infohash, int port);
-        void GetPeers (InfoHash infohash);
-        Task<byte[]> SaveNodesAsync ();
+        void Add (IEnumerable<ReadOnlyMemory<byte>> nodes);
+        void Announce (InfoHash infoHash, int port);
+        void GetPeers (InfoHash infoHash);
+        Task<ReadOnlyMemory<byte>> SaveNodesAsync ();
         Task SetListenerAsync (IDhtListener listener);
         Task StartAsync ();
-        Task StartAsync (byte[] initialNodes);
+        Task StartAsync (ReadOnlyMemory<byte> initialNodes);
         Task StopAsync ();
     }
 }

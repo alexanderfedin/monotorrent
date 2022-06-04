@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace MonoTorrent
@@ -43,11 +44,9 @@ namespace MonoTorrent
         }
 
         /// <summary>
-        /// The infohash of the torrent.
+        /// The infohashes for this torrent.
         /// </summary>
-        public InfoHash InfoHash {
-            get;
-        }
+        public InfoHashes InfoHashes { get; private set; }
 
         /// <summary>
         /// The size in bytes of the data, if available.
@@ -59,7 +58,7 @@ namespace MonoTorrent
         /// <summary>
         /// The display name of the torrent, if available.
         /// </summary>
-        public string Name {
+        public string? Name {
             get;
         }
 
@@ -70,9 +69,16 @@ namespace MonoTorrent
             get;
         }
 
-        public MagnetLink (InfoHash infoHash, string name = null, IList<string> announceUrls = null, IEnumerable<string> webSeeds = null, long? size = null)
+        public MagnetLink (InfoHash infoHash, string? name = null, IList<string>? announceUrls = null, IEnumerable<string>? webSeeds = null, long? size = null)
+            : this (InfoHashes.FromInfoHash (infoHash), name, announceUrls, webSeeds, size)
         {
-            InfoHash = infoHash ?? throw new ArgumentNullException (nameof (infoHash));
+
+        }
+
+        public MagnetLink (InfoHashes infoHashes, string? name = null, IList<string>? announceUrls = null, IEnumerable<string>? webSeeds = null, long? size = null)
+        {
+            InfoHashes = infoHashes ?? throw new ArgumentNullException (nameof (infoHashes));
+
             Name = name;
             AnnounceUrls = new List<string> (announceUrls ?? Array.Empty<string> ()).AsReadOnly ();
             Webseeds = new List<string> (webSeeds ?? Array.Empty<string> ()).AsReadOnly ();
@@ -96,7 +102,7 @@ namespace MonoTorrent
         /// <param name="uri"></param>
         /// <param name="magnetLink"></param>
         /// <returns></returns>
-        public static bool TryParse (string uri, out MagnetLink magnetLink)
+        public static bool TryParse (string uri, [NotNullWhen(true)] out MagnetLink? magnetLink)
         {
             try {
                 magnetLink = Parse (uri);
@@ -113,8 +119,8 @@ namespace MonoTorrent
         /// <returns></returns>
         public static MagnetLink FromUri (Uri uri)
         {
-            InfoHash infoHash = null;
-            string name = null;
+            InfoHashes? infoHashes = null;
+            string? name = null;
             var announceUrls = new List<string> ();
             var webSeeds = new List<string> ();
             long? size = null;
@@ -136,18 +142,23 @@ namespace MonoTorrent
                         switch (keyval[1].Substring (0, 9)) {
                             case "urn:sha1:"://base32 hash
                             case "urn:btih:":
-                                if (infoHash != null)
-                                    throw new FormatException ("More than one infohash in magnet link is not allowed.");
+                                if (infoHashes?.V1 != null)
+                                    throw new FormatException ("More than one v1 infohash in magnet link is not allowed.");
 
                                 if (val.Length == 32)
-                                    infoHash = InfoHash.FromBase32 (val);
+                                    infoHashes = new InfoHashes (InfoHash.FromBase32 (val), infoHashes?.V2);
                                 else if (val.Length == 40)
-                                    infoHash = InfoHash.FromHex (val);
+                                    infoHashes = new InfoHashes (InfoHash.FromHex (val), infoHashes?.V2);
                                 else
                                     throw new FormatException ("Infohash must be base32 or hex encoded.");
                                 break;
+
                             case "urn:btmh:":
-                                // placeholder to parse v2 multihash
+                                if (infoHashes?.V2 != null)
+                                    throw new FormatException ("More than one v2 multihash in magnet link is not allowed.");
+
+                                // BEP52: Support v2 magnet links
+                                infoHashes = new InfoHashes (infoHashes?.V1, InfoHash.FromMultiHash (val));
                                 break;
                         }
                         break;
@@ -174,10 +185,10 @@ namespace MonoTorrent
                 }
             }
 
-            if (infoHash == null)
+            if (infoHashes == null)
                 throw new FormatException ("The magnet link did not contain a valid 'xt' parameter referencing the infohash");
 
-            return new MagnetLink (infoHash, name, announceUrls, webSeeds, size);
+            return new MagnetLink (infoHashes, name, announceUrls, webSeeds, size);
         }
 
         public string ToV1String ()
@@ -195,7 +206,7 @@ namespace MonoTorrent
             var sb = new StringBuilder ();
             sb.Append ("magnet:?");
             sb.Append ("xt=urn:btih:");
-            sb.Append (InfoHash.ToHex ());
+            sb.Append (InfoHashes.V1OrV2.ToHex ());
 
             if (!string.IsNullOrEmpty (Name)) {
                 sb.Append ("&dn=");

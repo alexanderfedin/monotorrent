@@ -35,7 +35,7 @@ namespace MonoTorrent.Dht
 {
     class RoutingTable
     {
-        internal List<Bucket> Buckets { get; }
+        internal List<Bucket> Buckets { get; private set; }
 
         public Node LocalNode { get; }
 
@@ -65,7 +65,7 @@ namespace MonoTorrent.Dht
             if (node == null)
                 throw new ArgumentNullException (nameof (node));
 
-            Bucket bucket = Buckets.Find (b => b.CanContain (node));
+            Bucket bucket = Buckets.Find (b => b.CanContain (node))!;
             if (bucket.Nodes.Contains (node))
                 return false;
 
@@ -79,11 +79,13 @@ namespace MonoTorrent.Dht
 
         void Add (Bucket bucket)
         {
-            Buckets.Add (bucket);
-            Buckets.Sort ();
+            var newBuckets = new List<Bucket> (Buckets);
+            newBuckets.Add (bucket);
+            newBuckets.Sort ();
+            Buckets = newBuckets;
         }
 
-        internal Node FindNode (NodeId id)
+        internal Node? FindNode (NodeId id)
         {
             foreach (Bucket b in Buckets)
                 foreach (Node n in b.Nodes)
@@ -95,7 +97,9 @@ namespace MonoTorrent.Dht
 
         void Remove (Bucket bucket)
         {
-            Buckets.Remove (bucket);
+            var newBuckets = new List<Bucket> (Buckets);
+            newBuckets.Remove (bucket);
+            Buckets = newBuckets;
         }
 
         bool Split (Bucket bucket)
@@ -156,8 +160,9 @@ namespace MonoTorrent.Dht
 
         internal void Clear ()
         {
-            Buckets.Clear ();
-            Add (new Bucket ());
+            Buckets = new List<Bucket> {
+                new Bucket ()
+            };
         }
     }
 }

@@ -38,12 +38,20 @@ namespace MonoTorrent.Dht
 {
     class NodeId : IEquatable<NodeId>, IComparable<NodeId>, IComparable
     {
-        internal static readonly NodeId Minimum = new NodeId (new byte[20]);
-        internal static readonly NodeId Maximum = new NodeId (Enumerable.Repeat ((byte) 255, 20).ToArray ());
+        internal static readonly NodeId Minimum = NodeId.FromMemory (new byte[20]);
+        internal static readonly NodeId Maximum = NodeId.FromMemory (Enumerable.Repeat ((byte) 255, 20).ToArray ());
+        static readonly Random Random = new Random ();
 
-        static readonly Random random = new Random ();
+        public static NodeId Create ()
+        {
+            var b = new byte[20];
+            lock (Random)
+                Random.NextBytes (b);
+            return NodeId.FromMemory (b);
+        }
 
-        public BigEndianBigInteger value;
+        internal static NodeId FromMemory (ReadOnlyMemory<byte> memory)
+            => new NodeId (memory);
 
         ReadOnlyMemory<byte> Bytes { get; }
 
@@ -63,15 +71,6 @@ namespace MonoTorrent.Dht
             Bytes = b;
         }
 
-        internal NodeId (byte[] value)
-        {
-            if (value is null)
-                throw new ArgumentNullException (nameof (value));
-            if (value.Length != 20)
-                throw new ArgumentException ("Array should be exactly 20 bytes", nameof (value));
-            Bytes = (byte[]) value.Clone ();
-        }
-
         internal NodeId (InfoHash infoHash)
         {
             if (infoHash is null)
@@ -85,22 +84,25 @@ namespace MonoTorrent.Dht
                 throw new ArgumentNullException (nameof (value));
             if (value.Span.Length != 20)
                 throw new ArgumentException ("BEncodedString should be exactly 20 bytes", nameof (value));
-            Bytes = value.Span.ToArray ();
+            Bytes = value.AsMemory ();
         }
+
+        NodeId (ReadOnlyMemory<byte> memory)
+            => (Bytes) = memory;
 
         public ReadOnlyMemory<byte> AsMemory ()
             => Bytes;
 
-        public int CompareTo (object obj)
+        public int CompareTo (object? obj)
             => CompareTo (obj as NodeId);
 
-        public int CompareTo (NodeId other)
+        public int CompareTo (NodeId? other)
             => other is null ? 1 : Span.SequenceCompareTo (other.Span);
 
-        public override bool Equals (object obj)
-            => Equals (obj as NodeId);
+        public override bool Equals (object? obj)
+            => obj is NodeId node && node == this;
 
-        public bool Equals (NodeId other)
+        public bool Equals (NodeId? other)
             => this == other;
 
         public override int GetHashCode ()
@@ -117,7 +119,7 @@ namespace MonoTorrent.Dht
             var clone = new byte[left.Span.Length];
             for (int i = 0; i < right.Span.Length; i++)
                 clone[i] = (byte)(left.Span[i] ^ right.Span[i]);
-            return new NodeId (clone);
+            return NodeId.FromMemory (new ReadOnlyMemory<byte> (clone));
         }
 
         public static NodeId operator - (NodeId first, NodeId second)
@@ -155,7 +157,7 @@ namespace MonoTorrent.Dht
             return first.CompareTo (second) >= 0;
         }
 
-        public static bool operator == (NodeId first, NodeId second)
+        public static bool operator == (NodeId? first, NodeId? second)
         {
             if (first is null)
                 return second is null;
@@ -164,15 +166,7 @@ namespace MonoTorrent.Dht
             return first.Span.SequenceEqual (second.Span);
         }
 
-        public static bool operator != (NodeId first, NodeId second)
+        public static bool operator != (NodeId? first, NodeId? second)
             => !(first == second);
-
-        public static NodeId Create ()
-        {
-            var b = new byte[20];
-            lock (random)
-                random.NextBytes (b);
-            return new NodeId (b);
-        }
     }
 }

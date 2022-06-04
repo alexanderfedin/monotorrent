@@ -29,6 +29,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using MonoTorrent.Client;
 
@@ -39,23 +40,12 @@ namespace MonoTorrent.PiecePicking
     [TestFixture]
     public class RarestFirstPickerTests
     {
-        class TestTorrentData : ITorrentData
-        {
-            public int BlocksPerPiece => PieceLength / Constants.BlockSize;
-            public IList<ITorrentFileInfo> Files { get; set; }
-            public InfoHash InfoHash => new InfoHash (new byte[20]);
-            public string Name => "Test Torrent";
-            public int PieceLength { get; set; }
-            public int Pieces => (int) Math.Ceiling ((double) Size / PieceLength);
-            public long Size { get; set; }
-        }
-
-        MutableBitField bitfield;
+        BitField bitfield;
         PiecePickerFilterChecker checker;
         PeerId peer;
         List<PeerId> peers;
         RarestFirstPicker picker;
-        TestTorrentData torrentData;
+        ITorrentManagerInfo torrentData;
 
         [SetUp]
         public void Setup ()
@@ -64,12 +54,12 @@ namespace MonoTorrent.PiecePicking
             int pieces = 40;
             int size = pieces * pieceLength;
 
-            bitfield = new MutableBitField (pieces);
-            torrentData = new TestTorrentData {
-                Files = TorrentFileInfo.Create (pieceLength, ("Test", size, "Full/Path/Test")),
-                PieceLength = pieceLength,
-                Size = size
-            };
+            bitfield = new BitField (pieces);
+            torrentData = TestTorrentManagerInfo.Create (
+                files: TorrentFileInfo.Create (pieceLength, ("Test", size, "Full/Path/Test")),
+                pieceLength: pieceLength,
+                size: size
+            );
 
             checker = new PiecePickerFilterChecker ();
             picker = new RarestFirstPicker (checker);
@@ -86,29 +76,30 @@ namespace MonoTorrent.PiecePicking
         [Test]
         public void RarestPieceTest ()
         {
+            Span<BlockInfo> buffer = stackalloc BlockInfo[1];
             for (int i = 0; i < 5; i++)
                 for (int j = 0; j < (i * 5) + 5; j++)
                     peers[i].BitField[j] = true;
 
             // No pieces should be selected, but we can check what was requested.
-            picker.PickPiece (peer, peer.BitField, peers, 1, 0, peer.BitField.Length - 1);
+            picker.PickPiece (peer, peer.BitField, peers, 0, peer.BitField.Length - 1, buffer);
             Assert.AreEqual (6, checker.Picks.Count);
 
             // Two peers have piece 25
             Assert.AreEqual (25, checker.Picks[0].available.FirstTrue (), "#1");
-            Assert.AreEqual (-1, checker.Picks[0].available.FirstFalse (25, torrentData.Pieces - 1), "#2");
+            Assert.AreEqual (-1, checker.Picks[0].available.FirstFalse (25, torrentData.TorrentInfo.PieceCount () - 1), "#2");;
 
             // Three peers have piece 20
             Assert.AreEqual (20, checker.Picks[1].available.FirstTrue (), "#3");
-            Assert.AreEqual (-1, checker.Picks[1].available.FirstFalse (20, torrentData.Pieces - 1), "#4");
+            Assert.AreEqual (-1, checker.Picks[1].available.FirstFalse (20, torrentData.TorrentInfo.PieceCount () - 1), "#4");
 
             // Three peers have piece 20
             Assert.AreEqual (15, checker.Picks[2].available.FirstTrue (), "#4");
-            Assert.AreEqual (-1, checker.Picks[2].available.FirstFalse (15, torrentData.Pieces - 1), "#6");
+            Assert.AreEqual (-1, checker.Picks[2].available.FirstFalse (15, torrentData.TorrentInfo.PieceCount () - 1), "#6");
 
             // Three peers have piece 20
             Assert.AreEqual (10, checker.Picks[3].available.FirstTrue (), "#5");
-            Assert.AreEqual (-1, checker.Picks[3].available.FirstFalse (10, torrentData.Pieces - 1), "#8");
+            Assert.AreEqual (-1, checker.Picks[3].available.FirstFalse (10, torrentData.TorrentInfo.PieceCount () - 1), "#8");
         }
 
         [Test]
@@ -119,7 +110,7 @@ namespace MonoTorrent.PiecePicking
             bitfield.SetAll (true);
 
             // Pretend the peer has 4 pieces we can choose.
-            var available = new MutableBitField (bitfield.Length)
+            var available = new BitField (bitfield.Length)
                 .Set (1, true)
                 .Set (2, true)
                 .Set (4, true)
@@ -132,11 +123,11 @@ namespace MonoTorrent.PiecePicking
             // Ensure that pieces which were not in the 'available' bitfield were not offered
             // as suggestions.
             foreach (var pick in checker.Picks)
-                Assert.IsTrue (new MutableBitField (available).Not ().And (pick.available).AllFalse, "#1");
+                Assert.IsTrue (new BitField (available).Not ().And (pick.available).AllFalse, "#1");
 
             // Ensure at least one of the pieces in our bitfield *was* offered.
             foreach (var pick in checker.Picks)
-                Assert.IsFalse (new MutableBitField (available).And (pick.available).AllFalse, "#2");
+                Assert.IsFalse (new BitField (available).And (pick.available).AllFalse, "#2");
         }
     }
 }

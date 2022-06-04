@@ -43,22 +43,22 @@ namespace MonoTorrent.Connections.Peer.Encryption
     /// </summary>
     sealed class PeerAEncryption : EncryptedSocket
     {
-        public byte[] InitialPayload { get; }
+        public ReadOnlyMemory<byte> InitialPayload { get; }
 
-        public PeerAEncryption (Factories factories, InfoHash InfoHash, IList<EncryptionType> allowedEncryption)
-            : this (factories, InfoHash, allowedEncryption, null)
+        public PeerAEncryption (Factories factories, InfoHash infoHash, IList<EncryptionType> allowedEncryption)
+            : this (factories, infoHash, allowedEncryption, null)
         {
 
         }
 
-        public PeerAEncryption (Factories factories, InfoHash InfoHash, IList<EncryptionType> allowedEncryption, byte[] initialPayload)
+        public PeerAEncryption (Factories factories, InfoHash infoHash, IList<EncryptionType> allowedEncryption, ReadOnlyMemory<byte> initialPayload)
             : base (factories, allowedEncryption)
         {
             if (allowedEncryption.Contains (EncryptionType.PlainText))
                 throw new NotSupportedException ("'PlainText' is an unsupported RC4 encryption type.");
 
-            InitialPayload = initialPayload ?? Array.Empty<byte> ();
-            SKEY = InfoHash;
+            InitialPayload = initialPayload;
+            SKEY = infoHash;
         }
 
         protected override async ReusableTask DoneReceiveY ()
@@ -66,13 +66,13 @@ namespace MonoTorrent.Connections.Peer.Encryption
             CreateCryptors (KeyABytes, KeyBBytes);
 
             // 3 A->B: HASH('req1', S)
-            byte[] req1 = Hash (Req1Bytes, S);
+            byte[] req1 = Hash (Req1Bytes, S!);
 
             // ... HASH('req2', SKEY)
-            byte[] req2 = Hash (Req2Bytes, SKEY.Span.ToArray ());
+            byte[] req2 = Hash (Req2Bytes, SKEY!.Span.ToArray ());
 
             // ... HASH('req3', S)
-            byte[] req3 = Hash (Req3Bytes, S);
+            byte[] req3 = Hash (Req3Bytes, S!);
 
             // HASH('req2', SKEY) xor HASH('req3', S)
             for (int i = 0; i < req2.Length; i++)
@@ -84,8 +84,8 @@ namespace MonoTorrent.Connections.Peer.Encryption
             int bufferLength = req1.Length + req2.Length + VerificationConstant.Length + CryptoProvide.Length
                              + 2 + padC.Length + 2 + InitialPayload.Length;
 
-            using (NetworkIO.BufferPool.Rent (bufferLength, out SocketMemory buffer)) {
-                var position = buffer.Memory;
+            using (NetworkIO.BufferPool.Rent (bufferLength, out Memory<byte> buffer)) {
+                var position = buffer;
                 Message.Write (ref position, req1);
                 Message.Write (ref position, req2);
 
@@ -95,10 +95,10 @@ namespace MonoTorrent.Connections.Peer.Encryption
                 Message.Write (ref position, (short) padC.Length);
                 Message.Write (ref position, padC.Span);
                 Message.Write (ref position, (short) InitialPayload.Length);
-                Message.Write (ref position, InitialPayload);
+                Message.Write (ref position, InitialPayload.Span);
                 DoEncrypt (before.Span);
 
-                await NetworkIO.SendAsync (socket, buffer).ConfigureAwait (false);
+                await NetworkIO.SendAsync (socket!, buffer).ConfigureAwait (false);
             }
             DoDecrypt (VerificationConstant);
             await SynchronizeAsync (VerificationConstant, 616).ConfigureAwait (false); // 4 B->A: ENCRYPT(VC)
@@ -108,17 +108,17 @@ namespace MonoTorrent.Connections.Peer.Encryption
         {
             // The first 4 bytes are the crypto selector. The last 2 bytes are the length of padD.
             int verifyBytesLength = 4 + 2;
-            using (NetworkIO.BufferPool.Rent (verifyBytesLength, out SocketMemory verifyBytes)) {
+            using (NetworkIO.BufferPool.Rent (verifyBytesLength, out Memory<byte> verifyBytes)) {
                 await ReceiveMessageAsync (verifyBytes).ConfigureAwait (false); // crypto_select, len(padD) ...
-                DoDecrypt (verifyBytes.AsSpan ());
+                DoDecrypt (verifyBytes.Span);
 
-                short padDLength = Message.ReadShort (verifyBytes.AsSpan (4));
-                using (NetworkIO.BufferPool.Rent (padDLength, out SocketMemory padD)) {
+                short padDLength = Message.ReadShort (verifyBytes.Span.Slice (4));
+                using (NetworkIO.BufferPool.Rent (padDLength, out Memory<byte> padD)) {
 
                     await ReceiveMessageAsync (padD).ConfigureAwait (false);
-                    DoDecrypt (padD.AsSpan ());
+                    DoDecrypt (padD.Span);
                 }
-                SelectCrypto (verifyBytes.AsSpan (0, 4), true);
+                SelectCrypto (verifyBytes.Span.Slice (0, 4), true);
             }
         }
     }

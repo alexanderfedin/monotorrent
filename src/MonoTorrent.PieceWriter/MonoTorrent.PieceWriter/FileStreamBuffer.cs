@@ -41,10 +41,10 @@ namespace MonoTorrent.PieceWriter
     {
         internal readonly struct RentedStream : IDisposable
         {
-            internal readonly Stream Stream;
+            internal readonly Stream? Stream;
             readonly ReusableExclusiveSemaphore.Releaser Releaser;
 
-            public RentedStream (Stream stream, ReusableExclusiveSemaphore.Releaser releaser)
+            public RentedStream (Stream? stream, ReusableExclusiveSemaphore.Releaser releaser)
             {
                 Stream = stream;
                 Releaser = releaser;
@@ -60,7 +60,7 @@ namespace MonoTorrent.PieceWriter
         {
             public long LastUsedStamp = Stopwatch.GetTimestamp ();
             public ReusableExclusiveSemaphore Locker = new ReusableExclusiveSemaphore ();
-            public Stream Stream;
+            public Stream? Stream;
         }
 
         // A list of currently open filestreams. Note: The least recently used is at position 0
@@ -69,20 +69,20 @@ namespace MonoTorrent.PieceWriter
 
         public int Count { get; private set; }
 
-        Func<ITorrentFileInfo, FileAccess, Stream> StreamCreator { get; }
+        Func<ITorrentManagerFile, FileAccess, Stream> StreamCreator { get; }
 
-        Dictionary<ITorrentFileInfo, StreamData> Streams { get; }
+        Dictionary<ITorrentManagerFile, StreamData> Streams { get; }
 
-        internal FileStreamBuffer (Func<ITorrentFileInfo, FileAccess, Stream> streamCreator, int maxStreams)
+        internal FileStreamBuffer (Func<ITorrentManagerFile, FileAccess, Stream> streamCreator, int maxStreams)
         {
             StreamCreator = streamCreator;
             MaxStreams = maxStreams;
-            Streams = new Dictionary<ITorrentFileInfo, StreamData> (maxStreams);
+            Streams = new Dictionary<ITorrentManagerFile, StreamData> (maxStreams);
         }
 
-        internal async ReusableTask<bool> CloseStreamAsync (ITorrentFileInfo file)
+        internal async ReusableTask<bool> CloseStreamAsync (ITorrentManagerFile file)
         {
-            if (Streams.TryGetValue (file, out StreamData data)) {
+            if (Streams.TryGetValue (file, out StreamData? data)) {
                 using var releaser = await data.Locker.EnterAsync ();
                 if (data.Stream != null) {
                     data.Stream.Dispose ();
@@ -95,16 +95,16 @@ namespace MonoTorrent.PieceWriter
             return false;
         }
 
-        internal async ReusableTask FlushAsync (ITorrentFileInfo file)
+        internal async ReusableTask FlushAsync (ITorrentManagerFile file)
         {
             using var rented = await GetStream (file);
             if (rented.Stream != null)
                 await rented.Stream.FlushAsync ();
         }
 
-        internal async ReusableTask<RentedStream> GetStream (ITorrentFileInfo file)
+        internal async ReusableTask<RentedStream> GetStream (ITorrentManagerFile file)
         {
-            if (Streams.TryGetValue (file, out StreamData data)) {
+            if (Streams.TryGetValue (file, out StreamData? data)) {
                 var releaser = await data.Locker.EnterAsync ();
                 if (data.Stream == null) {
                     releaser.Dispose ();
@@ -116,9 +116,9 @@ namespace MonoTorrent.PieceWriter
             return new RentedStream (null, default);
         }
 
-        internal async ReusableTask<RentedStream> GetOrCreateStreamAsync (ITorrentFileInfo file, FileAccess access)
+        internal async ReusableTask<RentedStream> GetOrCreateStreamAsync (ITorrentManagerFile file, FileAccess access)
         {
-            if (!Streams.TryGetValue (file, out StreamData data))
+            if (!Streams.TryGetValue (file, out StreamData? data))
                 data = Streams[file] = new StreamData ();
 
             var releaser = await data.Locker.EnterAsync ();
@@ -133,8 +133,8 @@ namespace MonoTorrent.PieceWriter
 
             if (data.Stream == null) {
                 if (!File.Exists (file.FullPath)) {
-                    if (!string.IsNullOrEmpty (Path.GetDirectoryName (file.FullPath)))
-                        Directory.CreateDirectory (Path.GetDirectoryName (file.FullPath));
+                    if (Path.GetDirectoryName (file.FullPath) is string parentDirectory)
+                        Directory.CreateDirectory (parentDirectory);
                     NtfsSparseFile.CreateSparse (file.FullPath, file.Length);
                 }
                 data.Stream = StreamCreator (file, access);
@@ -162,7 +162,7 @@ namespace MonoTorrent.PieceWriter
                 var oldest = Streams.OrderBy (t => t.Value.LastUsedStamp).Where (t => t.Value.Stream != null).FirstOrDefault ();
 
                 using (await oldest.Value.Locker.EnterAsync ()) {
-                    oldest.Value.Stream.Dispose ();
+                    oldest.Value.Stream?.Dispose ();
                     oldest.Value.Stream = null;
                     Count--;
                 }
